@@ -1,3 +1,5 @@
+import {createCourseCovers,coverBoxes,resolveTerrainCollisions,resetTerrainCollisionHistory} from './cover.js';
+
 export const COLORS = [0xff508d,0x33dbce,0xffc64b,0x9e83ff,0x57aaff,0xff865c,0x91d957,0xf775d2,0x5dd9ff,0xc7a3ff,0xffda82,0x55c7a2];
 export const BOT_NAMES = ['麻糬隊長','布丁暴走','薄荷閃電','芋泥球','檸檬蹦蹦','奶油小偷','泡泡糖','藍莓火箭','焦糖旋風','桃子汽水','棉花糖'];
 export const THEMES = [
@@ -46,7 +48,7 @@ export function generateCourse(seed, round, mapId=selectMapIds(seed)[round]) {
     }
     start+=length+(i===0?0:2.25+round*.14+random()*.3);
   }
-  return {seed,round,map,platforms,obstacles,length:platforms.at(-1).end-4,width};
+  return {seed,round,map,platforms,obstacles,covers:createCourseCovers(platforms,round),length:platforms.at(-1).end-4,width};
 }
 export function obstaclePose(ob,time) {
   const angle=time*ob.speed+ob.phase,wave=Math.sin(angle);
@@ -59,7 +61,8 @@ export function createRacers(name,seed) {
   return [name,...BOT_NAMES].map((name,id)=>({id,name,color:COLORS[id],skill:.87+random()*.2,lane:(random()-.5)*5,points:0,results:[],totalTime:0}));
 }
 export function resetRacers(racers) {
-  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,monsterHits:0,lastMonsterHit:null,pushHeld:false}));
+  resetTerrainCollisionHistory(racers);
+  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,monsterHits:0,lastMonsterHit:null,pushHeld:false,sheltered:false}));
 }
 export function botInput(r,course,time,racers=[],event=null) {
   const lane=r.lane+Math.sin(r.respawns*2.4)*1.4;
@@ -77,15 +80,17 @@ export function botInput(r,course,time,racers=[],event=null) {
     if(ob.p-r.p > -1.7 && ob.p-r.p<10) {
       if(ob.kind==='sweeper') { if(Math.abs(ob.p-r.p)<4) jump=true; }
       else if(ob.kind==='slider' || ob.kind==='piston') {
-        const pose=obstaclePose(ob,time+.3);
+        const pose=obstaclePose(ob,time+Math.max(.2,(ob.p-r.p-1.2)/Math.max(5,r.vp)));
         target=segment.x+(pose.x>segment.x?-1:1)*(segment.width/2-1.8);
       } else if(ob.kind==='hammer') {
-        if(Math.abs(ob.p-r.p)<2.7)jump=true;
-        target=segment.x+clamp(lane,-segment.width/2+1.3,segment.width/2-1.3);
         const prediction=obstaclePose(ob,time+Math.max(0,ob.p-r.p)/8);
-        if(ob.p-r.p>2.7&&ob.p-r.p<4.7&&Math.abs(prediction.x-target)<1.5&&prediction.y<2.6)forward=0;
+        target=segment.x+(prediction.x>segment.x?-1:1)*Math.min(1.5,segment.width/2-.8);
+        const clearance=Math.hypot(prediction.x-target,prediction.y-1);
+        if(ob.p-r.p>0&&ob.p-r.p<2.7&&prediction.y<1.4)jump=true;
+        if(ob.p-r.p>2.7&&ob.p-r.p<4.7&&clearance<1.7)forward=0;
       } else if(ob.kind==='fan') {
         target=segment.x-ob.direction*(segment.width/2-1.8);
+        if(segment.kind==='ice'&&ob.p-r.p>0&&ob.p-r.p<4)jump=true;
       } else {
         target=segment.x;
       }
@@ -99,9 +104,36 @@ export function botInput(r,course,time,racers=[],event=null) {
   if(segment.kind==='moving')target=platformX(segment,time+.3)+clamp(lane,-1.3,1.3);
   if(r.grabTarget!==null&&!jump)target=segment.x+(lane>=0?1:-1)*(segment.width/2-1.6);
   const nearby=racers.some(other=>other.id!==r.id&&!other.finished&&Math.hypot(other.x-r.x,other.p-r.p)<GRAB.range&&Math.abs(other.y-r.y)<1);
-  const grab=r.grabTarget!==null || (!jump&&nearby&&(time+r.id*.71)%(3.6-r.skill*.3)<.65);
+  let grab=r.grabTarget!==null || (!jump&&nearby&&(time+r.id*.71)%(3.6-r.skill*.3)<.65);
   const dive=r.grabbedBy!==null&&r.grabbedTime>.3&&r.diveCooldown<=0;
-  if(event&&time>event.startAt+.5+(1.07-r.skill)*1.4&&time<event.endAt){const distance=event.p-r.p;if(distance>event.depth/2+.35&&distance<event.depth/2+4)forward=0;}
+  const walls=coverBoxes(course,time),wall=walls.find(b=>b.p-r.p>-b.depth/2-.7&&b.p-r.p<6.5);
+  const nextObstacle=course.obstacles.find(ob=>ob.p>r.p);
+  if(wall){
+    // Approach the apron walls from a free side, including after checkpoint recovery.
+    const beforeWall=r.p<wall.p-wall.depth/2-1.3;
+    const side=beforeWall&&Math.abs(target-wall.x)>.45?Math.sign(target-wall.x):Math.abs(r.x-wall.x)>.45?Math.sign(r.x-wall.x):lane>=0?1:-1;
+    // A later trap can suggest the opposite lane. Keep this side until the whole
+    // body has passed the wall, then allow that lane change.
+    if((target-wall.x)*side<wall.width/2+.75)target=wall.x+side*(wall.width/2+.8);
+    if(wall.p-r.p<wall.depth/2+1.2&&Math.abs(r.x-wall.x)<wall.width/2+.66)forward=0;
+    // Ice needs braking room before the tight turn from a wall into a bumper gap.
+    if(segment.kind==='ice'&&nextObstacle?.kind==='bumpers'&&nextObstacle.p-wall.p<4.5&&wall.p-r.p<3.5)forward=Math.min(forward,.38);
+  }
+  const approaching=course.obstacles.find(ob=>ob.p-r.p>1.1&&ob.p-r.p<4);
+  if(approaching&&approaching.kind!=='fan'&&approaching.kind!=='sweeper'&&Math.abs(target-r.x)>.8&&(!wall||r.p>wall.p+wall.depth/2+.6))forward=segment.kind==='ice'&&r.vp>1?-.6:0;
+  if(event&&time>event.startAt+.45+(1.07-r.skill)*1.4&&time<event.endAt){
+    const distance=event.p-r.p;
+    const shelter=event.shelters?.filter(s=>current&&s.p>current.start&&s.p<current.end&&Math.abs(s.p-r.p)<7&&platformAt(course,(s.x+r.x)/2,(s.p+r.p)/2,-.6,time)).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p))[0];
+    if(shelter&&distance>-event.depth/2-.2&&distance<event.depth/2+4&&current.end-r.p>2){
+      // Walk around the end of the wall before crossing to its sheltered face.
+      const blocking=walls.find(b=>b.id===shelter.coverId);
+      const across=blocking&&(r.x-blocking.x)*(shelter.x-blocking.x)<0;
+      const aroundP=blocking?blocking.p-(blocking.depth/2+.85):shelter.p;
+      if(across&&r.p>aroundP+.1){target=r.x;forward=clamp((aroundP-r.p)*1.4-r.vp*.2,-1,1);}
+      else {target=shelter.x;forward=across?0:clamp((shelter.p-r.p)*1.5-r.vp*.22,-1,1);}
+      jump=false;grab=grab&&Math.hypot(shelter.x-r.x,shelter.p-r.p)<.6;
+    }else if(distance>event.depth/2+.35&&distance<event.depth/2+4)forward=0;
+  }
   // Release the jump key while airborne so adjacent traps can be jumped in turn.
   jump=jump&&r.ground&&!r.jumpHeld;
   return {x:clamp((target-r.x)*1.5-r.vx*(segment.kind==='ice'?.65:.08),-1,1),forward,jump,dive,grab};
@@ -204,11 +236,12 @@ export function stepRacer(r,input,course,time,dt) {
     }
   }
 }
-export function resolveRacerCollisions(racers) {
+export function resolveRacerCollisions(racers,course=null,time=0) {
   // Upright capsules match the bean bodies: radius .56, center segment .63.
   // Resolve horizontally to keep platform landing/jumping under the gravity solver.
   // All racers have equal mass. Multiple passes propagate shoves through a crowd.
-  for(let pass=0;pass<3;pass++) for(let i=0;i<racers.length;i++) for(let j=i+1;j<racers.length;j++) {
+  for(let pass=0;pass<3;pass++) {
+    for(let i=0;i<racers.length;i++) for(let j=i+1;j<racers.length;j++) {
     const a=racers[i],b=racers[j];if(a.finished||b.finished)continue;
     const verticalGap=Math.max(0,Math.abs(a.y-b.y)-.63);
     if(verticalGap>=1.12)continue;
@@ -236,6 +269,8 @@ export function resolveRacerCollisions(racers) {
       // A dive's extra speed produces extra impulse, then the impact ends the dive.
       a.dive=0;b.dive=0;
     }
+    }
+    if(course)resolveTerrainCollisions(racers,course,time);
   }
 }
 export function raceOrder(racers) {return [...racers].sort((a,b)=> a.finished!==b.finished?(a.finished?-1:1):a.finished?a.place-b.place:b.p-a.p||a.id-b.id);}

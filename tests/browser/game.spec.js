@@ -69,3 +69,26 @@ test('monster warning, fire/water/ice visuals, lightning inversion and paused st
   await page.evaluate(()=>window.__gameTest.stopMonsters());await page.evaluate(()=>window.__gameTest.advance(5));expect((await page.evaluate(()=>window.__gameTest.snapshot())).player.reversed).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('terrain shelters all monster types; leaving the green zone exposes the player',async({page})=>{
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/?test');await page.locator('#start-form button').click();await page.evaluate(()=>window.__gameTest.advance(4));
+  for(const [index,type] of ['fire','water','ice','lightning'].entries()){
+    const side=index%2?-1:1;
+    await page.evaluate(({type,side})=>window.__gameTest.arrangeShelter(type,side),{type,side});
+    await expect(page.locator('#monster-warning')).toContainText('掩體保護中');
+    await page.evaluate(()=>window.__gameTest.advance(1.8));
+    let s=await page.evaluate(()=>window.__gameTest.snapshot());
+    expect(s.player.monsterHits).toBe(0);expect(s.player.sheltered).toBe(true);
+    if(type==='fire')await page.screenshot({path:'test-results/terrain-shelter.png'});
+    // S walks out around the end of the wall while still inside the attack stripe.
+    await page.keyboard.down('s');await page.evaluate(()=>window.__gameTest.advance(.3));await page.keyboard.up('s');
+    s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.monsterHits).toBe(1);expect(s.player.lastMonsterHit).toBe(type);
+  }
+  await page.evaluate(()=>window.__gameTest.arrangeShelter('ice',1,true));
+  await expect(page.locator('#monster-warning')).not.toContainText('掩體保護中');
+  await page.evaluate(()=>window.__gameTest.advance(1.8));expect((await page.evaluate(()=>window.__gameTest.snapshot())).player.frozen).toBeGreaterThan(0);
+  await page.evaluate(()=>window.__gameTest.arrangeShelter('water',-1));await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'test-results/terrain-shelter-mobile.png'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});

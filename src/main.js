@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import './style.css';
 import { THEMES, COLORS, TERRAIN_NAMES, GRAB, MAP_CATALOG, selectMapIds, generateCourse, platformX, createRacers, resetRacers, botInput, obstaclePose, stepGrabs, stepRacer, resolveRacerCollisions, raceOrder, awardRound, finalOrder, clamp } from './game.js';
-import {ATTACKS,createMonsterDirector,beginMonsterEvent,eventPhase,stepMonsterEvents,advanceStatuses,effectiveInput} from './monster.js';
+import {ATTACKS,createMonsterDirector,beginMonsterEvent,eventPhase,insideMonsterAttack,stepMonsterEvents,advanceStatuses,effectiveInput} from './monster.js';
 import {MonsterView,addStatusVisuals,updateStatusVisuals} from './monster-view.js';
+import {coverBoxes,isSheltered,shelterSpots,resetTerrainCollisionHistory} from './cover.js';
 
 const $=s=>document.querySelector(s);
 $('#app').innerHTML=`
   <div id="world" aria-label="3D 糖豆競速場"></div><div class="vignette"></div>
   <header><a class="brand" href="./" aria-label="糖豆衝衝首頁"><span class="brand-icon">S<span>★</span></span><span>SUGAR<span class="brand-light">BEAT</span><small>糖豆衝衝</small></span></a><div class="top-right"><span class="local-badge"><i></i> SOLO + AI</span><button class="icon-button" id="sound" aria-label="開啟音效" title="音效">♫ <span>OFF</span></button><button class="icon-button hidden" id="pause" aria-label="暫停遊戲">Ⅱ</button></div></header>
-  <main id="lobby"><div class="lobby-copy"><div class="eyebrow"><span></span> 36 張極難地圖 · 12 位選手 · 怪獸亂入</div><h1>小糖豆，<br>大<span class="pink-word">暴走<span class="spark">✦</span></span>。</h1><p class="intro">推他一下，拉他一把。<br>火、水、冰、雷，怪獸正在場外等你。</p><form id="start-form"><label for="name">選手名稱 <span>PLAYER NAME</span></label><div class="input-wrap"><span>☺</span><input id="name" maxlength="16" autocomplete="nickname" placeholder="幫你的糖豆取個名字" required value="糖豆新星"><span class="input-status">READY</span></div><button class="play-button" type="submit">出發！開始挑戰 <span>↗</span></button></form><div class="controls-guide"><span><kbd>W</kbd><span class="key-row"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>移動</span><span class="control-divider"></span><kbd class="wide">SPACE</kbd><span>跳躍</span><kbd class="wide">SHIFT</kbd><span>前撲</span><kbd>E</kbd><span>抓拉</span></div><p class="lobby-note">按住 E + 方向鍵拉人 · 被抓時 Shift 掙脫</p></div><div class="hero-label"><span class="player-tag">★ THAT'S YOU!</span><span class="hero-caption">軟萌登場，認真開跑。</span></div><div class="round-preview"><span class="preview-label">MONSTER MAYHEM <span>36 張隨機抽 3 張</span></span>${THEMES.map((t,i)=>`<div class="round-card"><span class="round-no">0${i+1}</span><div><strong>${t.name}</strong><small>${['極難起跑','怪獸追擊','地獄決勝'][i]}</small></div><span class="difficulty">${'▰'.repeat(i+1)}${'▱'.repeat(2-i)}</span></div>`).join('')}</div></main>
+  <main id="lobby"><div class="lobby-copy"><div class="eyebrow"><span></span> 36 張極難地圖 · 12 位選手 · 怪獸亂入</div><h1>小糖豆，<br>大<span class="pink-word">暴走<span class="spark">✦</span></span>。</h1><p class="intro">推他一下，拉他一把。<br>躲進威化牆背面，別被拉去餵怪獸。</p><form id="start-form"><label for="name">選手名稱 <span>PLAYER NAME</span></label><div class="input-wrap"><span>☺</span><input id="name" maxlength="16" autocomplete="nickname" placeholder="幫你的糖豆取個名字" required value="糖豆新星"><span class="input-status">READY</span></div><button class="play-button" type="submit">出發！開始挑戰 <span>↗</span></button></form><div class="controls-guide"><span><kbd>W</kbd><span class="key-row"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>移動</span><span class="control-divider"></span><kbd class="wide">SPACE</kbd><span>跳躍</span><kbd class="wide">SHIFT</kbd><span>前撲</span><kbd>E</kbd><span>抓拉</span></div><p class="lobby-note">按住 E + 方向鍵拉人 · 被抓時 Shift 掙脫</p></div><div class="hero-label"><span class="player-tag">★ THAT'S YOU!</span><span class="hero-caption">軟萌登場，認真開跑。</span></div><div class="round-preview"><span class="preview-label">MONSTER MAYHEM <span>36 張隨機抽 3 張</span></span>${THEMES.map((t,i)=>`<div class="round-card"><span class="round-no">0${i+1}</span><div><strong>${t.name}</strong><small>${['極難起跑','怪獸追擊','地獄決勝'][i]}</small></div><span class="difficulty">${'▰'.repeat(i+1)}${'▱'.repeat(2-i)}</span></div>`).join('')}</div></main>
   <section id="hud" class="hidden"><div class="race-top"><div class="round-info"><span id="round-label"></span><h2 id="course-name"></h2></div><div class="race-stats"><div><small>即時名次</small><strong id="position">1<em>/12</em></strong></div><div><small>剩餘時間</small><strong id="timer">80<span>s</span></strong></div><div><small>總積分</small><strong id="score">0</strong></div></div></div><div class="race-progress"><div id="progress-fill"></div><span>START</span><span>FINISH ⚑</span></div><div class="leaderboard"><div class="board-title">LIVE RANKING <i></i></div><ol id="live-list"></ol></div><div id="race-hint"></div><div id="monster-warning" class="hidden" role="status"><strong></strong><span></span></div><div id="status-panel" class="hidden" role="status"><strong id="status-list"></strong><span id="reverse-keys" class="hidden">W ⇄ S · A ⇄ D<br>SPACE ⇄ SHIFT · E 變推開</span></div><div class="bottom-hud"><span><kbd>W A S D</kbd> 移動 <kbd>SPACE</kbd> 跳躍 <kbd>SHIFT</kbd> 前撲 / 掙脫 <kbd>E</kbd> 抓拉 <kbd>ESC</kbd> 暫停</span><div class="ability-meters"><div class="dive-status" id="grab-status"><span id="grab-label">E 抓拉就緒</span><div><i id="grab-meter"></i></div></div><div class="dive-status"><span id="dive-label">前撲就緒</span><div><i id="dive-meter"></i></div></div></div></div><div class="touch-controls"><div class="dpad"><button data-key="KeyW" aria-label="向前">▲</button><button data-key="KeyA" aria-label="向左">◀</button><button data-key="KeyS" aria-label="向後">▼</button><button data-key="KeyD" aria-label="向右">▶</button></div><div class="touch-actions"><button data-key="KeyE">抓拉</button><button data-key="ShiftLeft">前撲</button><button data-key="Space">跳躍</button></div></div></section>
   <div id="countdown" class="hidden" aria-live="assertive"></div><div id="toast" class="hidden" role="status"></div>
   <section id="results" class="overlay hidden" aria-labelledby="result-title"><div class="results-panel"><div class="eyebrow" id="result-eyebrow"></div><h2 id="result-title"></h2><p id="result-subtitle"></p><div id="podium"></div><div class="table-scroll"><table><thead id="result-head"></thead><tbody id="result-body"></tbody></table></div><div class="result-footer"><span id="score-rule"></span><button class="play-button" id="next">下一關 →</button></div></div></section>
@@ -75,6 +76,18 @@ function buildCourse(c) {
       const a=mesh(new THREE.ShapeGeometry(arrow),i%2?0xffffff:theme.color,g,p.x,.06,-p.start-3-j*.75);a.rotation.x=-Math.PI/2;
     }
     if(i>0&&p.kind!=='moving'){const pole=box(.09,1.1,.09,0xffffff,g,p.x-p.width/2+.6,.55,-p.start-2);box(.6,.35,.06,0x6654e8,g,pole.position.x+.28,.94,pole.position.z);}
+    for(const cover of c.covers.filter(cover=>cover.platformIndex===i)){
+      const wall=new THREE.Group();wall.position.set(p.x+cover.xOffset,0,-cover.p);g.add(wall);
+      box(cover.width,cover.height,cover.depth,0xd79748,wall,0,cover.height/2,0);
+      box(cover.width,.18,cover.depth,0x2cbe97,wall,0,cover.height-.09,0);
+      for(const side of [-1,1])for(let row=0;row<3;row++)for(let col=0;col<2;col++)box(.4,.68,.025,0xffd387,wall,(col-.5)*.53,.5+row*.85,side*(cover.depth/2+.012));
+      // Waffle panels and shield emblems identify the solid terrain that blocks breath.
+      for(const side of [-1,1]){
+        for(let row=0;row<3;row++)for(let col=0;col<2;col++)box(.025,.68,.72,0xffd387,wall,side*(cover.width/2+.012),.5+row*.85,(col-.5)*.94);
+        const shield=new THREE.Shape();shield.moveTo(-.32,.3);shield.lineTo(.32,.3);shield.lineTo(.3,-.15);shield.lineTo(0,-.42);shield.lineTo(-.3,-.15);shield.closePath();
+        const emblem=mesh(new THREE.ShapeGeometry(shield),0x087e69,wall,side*(cover.width/2+.035),2.55,0);emblem.rotation.y=side*Math.PI/2;
+      }
+    }
   });
   c.obstacles.forEach(ob=>{
     const g=new THREE.Group();g.position.set(ob.x,0,-ob.p);courseGroup.add(g);
@@ -158,7 +171,12 @@ function updateHUD() {
   $('#race-hint').textContent=me.grabbedBy!==null?'被對手抓住！按 Shift 前撲掙脫':segment&&segment.kind!=='plain'?TERRAIN_NAMES[segment.kind]:THEMES[round].hint;
   const event=director?.event,phase=eventPhase(event,simulationTime),warn=$('#monster-warning');
   warn.classList.toggle('hidden',phase==='idle'||phase==='retreat');
-  if(phase==='warning'||phase==='attack'){warn.dataset.type=event.type;warn.querySelector('strong').textContent=`${phase==='warning'?'怪物現身':'正在攻擊'} · ${ATTACKS[event.type].name}`;warn.querySelector('span').textContent=phase==='warning'?`${ATTACKS[event.type].warning} · ${Math.max(0,event.attackAt-simulationTime).toFixed(1)}s`:'離開發光區域！';}
+  const sheltered=(phase==='warning'||phase==='attack')&&insideMonsterAttack(event,me)&&isSheltered(event,me,coverBoxes(course,simulationTime));
+  warn.classList.toggle('sheltered',!!sheltered);
+  if(phase==='warning'||phase==='attack'){
+    warn.dataset.type=event.type;warn.querySelector('strong').textContent=sheltered?'✓ 掩體保護中 · 小心被拉出去':`${phase==='warning'?'怪物現身':'正在攻擊'} · ${ATTACKS[event.type].name}`;
+    warn.querySelector('span').textContent=sheltered?'威化牆已擋住攻擊 · 留在綠色區域、別跳起露身':phase==='warning'?`${ATTACKS[event.type].warning} · ${Math.max(0,event.attackAt-simulationTime).toFixed(1)}s`:'躲到威化牆背面的綠色區域，或離開攻擊範圍！';
+  }
   const statuses=[];
   if(me.charred>0)statuses.push(`燒焦 ${me.charred.toFixed(1)}s${me.burning>0?' · 移動減速':''}`);
   if(me.soaked>0)statuses.push(`水砲衝擊 ${me.soaked.toFixed(1)}s`);
@@ -188,7 +206,7 @@ function tick(dt) {
     const wasGround=r.ground;stepRacer(r,input,course,simulationTime,dt);if(r.id===0&&wasGround&&!r.ground&&input.jump)beep(490,.06);
   }
   const previousImpact=racers[0].impact;
-  resolveRacerCollisions(racers);
+  resolveRacerCollisions(racers,course,simulationTime);
   if(previousImpact<=0&&racers[0].impact>0)beep(240,.07);
   for(const r of racers) {
     if(!r.finished&&r.p>=course.length&&r.y>=-.1&&platformAtFinish(r)) {r.finished=true;r.finishTime=elapsed;r.place=++finishCount;if(r.id===0){toast(`第 ${r.place} 名完賽！等待其他選手抵達…`);beep(880,.2);}}
@@ -203,7 +221,7 @@ function animate(now) {
   if(state!=='paused') {
     if(state==='race'||state==='countdown'){accumulator+=dt;while(accumulator>=1/60){tick(1/60);accumulator-=1/60;}}
     else simulationTime+=dt;
-    monsterView.update(director?.event,simulationTime,state==='race');
+    monsterView.update(director?.event,simulationTime,state==='race',course);
     platformMeshes.forEach(({p,g})=>{g.position.x=platformX(p,simulationTime)-p.x;if(g.userData.stripes)g.userData.stripes.position.z=(simulationTime*-p.beltP)%1.25;});
     obstacleMeshes.forEach(({ob,g})=>{
       const pose=obstaclePose(ob,simulationTime),data=g.userData;
@@ -253,5 +271,14 @@ if(import.meta.env.DEV && new URLSearchParams(location.search).has('test')) {
     arrangeGrab:(asVictim=false)=>{racers.forEach((r,i)=>{r.x=i===0?0:i===1?1.3:30+i*2;r.p=3;r.y=0;r.vx=0;r.vp=0;r.grabImmune=0;r.grabTarget=null;r.grabbedBy=null;r.grabHeld=false;r.grabCooldown=0;r.diveCooldown=0;});if(asVictim){racers[1].grabTarget=0;racers[1].grabTime=0;racers[0].grabbedBy=1;racers[0].grabbedTime=.1;}},
     arrangeMonster:(type)=>{const r=racers[0];racers.slice(1).forEach((bot,i)=>Object.assign(bot,{x:40+i*2,p:4,finished:true}));Object.assign(r,{x:0,p:4,y:0,vx:0,vp:0,vy:0,ground:true,stun:0,impact:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,grabTarget:null,grabbedBy:null});const event=beginMonsterEvent(director,course,[r],simulationTime,type);Object.assign(event,{x:0,p:4,width:12.8,monsterX:11.6,side:1});updateHUD();},
     stopMonsters:()=>{director.event=null;director.nextAt=Infinity;},
+    arrangeShelter:(type,side=1,exposed=false)=>{
+      const r=racers[0];resetRacers(racers);racers.slice(1).forEach(bot=>bot.finished=true);
+      Object.assign(r,{x:0,p:10,y:0,vx:0,vp:0,vy:0});
+      const event=beginMonsterEvent(director,course,[r],simulationTime,type);
+      Object.assign(event,{x:0,p:10,width:12.8,monsterX:side*11.6,side});
+      const spots=shelterSpots(event,course,simulationTime,coverBoxes(course,simulationTime));
+      const spot=spots[0];Object.assign(r,{x:exposed?-spot.x:spot.x,p:spot.p});resetTerrainCollisionHistory(racers);
+      updateHUD();return spot;
+    },
   };
 }

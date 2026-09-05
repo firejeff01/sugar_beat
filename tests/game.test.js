@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateCourse,MAP_CATALOG,selectMapIds,platformAt,platformX,obstaclePose,createRacers,resetRacers,stepRacer,stepGrabs,GRAB,botInput,resolveRacerCollisions,awardRound,finalOrder,THEMES} from '../src/game.js';
 import {createMonsterDirector,advanceStatuses,stepMonsterEvents,effectiveInput} from '../src/monster.js';
+import {coverBoxes,isSheltered,shelterSpots} from '../src/cover.js';
 
 test('same seed reproduces courses; new seeds change them; rounds get harder',()=>{
   assert.deepEqual(generateCourse(42,0),generateCourse(42,0));
@@ -24,6 +25,37 @@ test('keyboard motion, jump, dive cooldown, and fall recovery are simulated',()=
   stepRacer(r,{...input,dive:true},c,1.1,1/60);assert.ok(r.dive>0);assert.ok(r.diveCooldown>1);
   r.x=100;r.y=-9;stepRacer(r,input,c,2,1/60);assert.equal(r.respawns,1);assert.equal(r.x,r.checkpoint.x);
 });
+test('AI reaches terrain shelter, holds behind the wall, and resumes after the attack',()=>{
+  const course=generateCourse(11,0),[r]=createRacers('Shelter test',11);resetRacers([r]);
+  Object.assign(r,{x:-2.5,p:6,lane:-2.5,skill:1});
+  const event={side:1,monsterX:11.6,x:0,p:10,width:13.8,depth:5,startAt:0,attackAt:1.65,endAt:3.1};
+  event.shelters=shelterSpots(event,course,0);
+  for(let step=0;step<150;step++){
+    const time=step/60,input=botInput(r,course,time,[r],event);
+    stepRacer(r,input,course,time,1/60);resolveRacerCollisions([r],course,time);
+  }
+  assert.ok(isSheltered(event,r,coverBoxes(course,2.5)),'AI must physically enter the protected side');
+  assert.ok(Math.abs(r.p-event.p)<.4);assert.equal(r.respawns,0);
+  for(let step=150;step<300;step++){
+    const time=step/60,input=botInput(r,course,time,[r],event);
+    stepRacer(r,input,course,time,1/60);resolveRacerCollisions([r],course,time);
+  }
+  assert.ok(r.p>14,'AI must leave shelter and continue racing after the attack');
+});
+test('AI already leaving an attack keeps its gap jump instead of returning to shelter',()=>{
+  const generated=generateCourse(11,0),first=generated.platforms[0];
+  const second={...first,start:18.6,end:40,width:10};
+  const course={...generated,platforms:[first,second],covers:[generated.covers[0]],obstacles:[],length:36};
+  const [r]=createRacers('Gap test',11);resetRacers([r]);Object.assign(r,{x:-1.5,p:14.5,vp:8.8,lane:-1.5,skill:1});
+  const event={side:1,monsterX:11.6,x:0,p:10,width:13.8,depth:5,startAt:0,attackAt:1.65,endAt:4};
+  event.shelters=shelterSpots(event,course,1);
+  let jumped=false;
+  for(let step=0;step<60;step++){
+    const time=1+step/60,input=botInput(r,course,time,[r],event);
+    stepRacer(r,input,course,time,1/60);resolveRacerCollisions([r],course,time);jumped||=r.y>.5;
+  }
+  assert.ok(jumped);assert.ok(r.p>second.start&&r.ground,'AI must land across the real gap');assert.equal(r.respawns,0);
+});
 test('all 36 extreme maps run with AI, collision, grabbing and random monster attacks',()=>{
   const failures=[];let finishedTotal=0,total=0,grabs=0,escapes=0,hits=0;
   for(let mapId=1;mapId<=36;mapId++) {
@@ -35,7 +67,7 @@ test('all 36 extreme maps run with AI, collision, grabbing and random monster at
       const inputs=new Map(racers.map(r=>[r.id,effectiveInput(r,botInput(r,course,time,racers,director.event))]));
       stepGrabs(racers,inputs,1/60);
       for(const r of racers) stepRacer(r,inputs.get(r.id),course,time,1/60);
-      resolveRacerCollisions(racers);
+      resolveRacerCollisions(racers,course,time);
       for(const r of racers)if(!r.finished&&r.p>=course.length&&r.y>=-.1&&Math.abs(r.x-course.platforms.at(-1).x)<course.width/2){r.finished=true;r.finishTime=time;}
       if(racers.every(r=>r.finished))break;
     }
