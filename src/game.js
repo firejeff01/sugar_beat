@@ -1,4 +1,5 @@
 import {createCourseCovers,coverBoxes,resolveTerrainCollisions,resetTerrainCollisionHistory} from './cover.js';
+import {generateTimedGates} from './timed-gates.js';
 
 export const COLORS = [0xff508d,0x33dbce,0xffc64b,0x9e83ff,0x57aaff,0xff865c,0x91d957,0xf775d2,0x5dd9ff,0xc7a3ff,0xffda82,0x55c7a2];
 export const BOT_NAMES = ['麻糬隊長','布丁暴走','薄荷閃電','芋泥球','檸檬蹦蹦','奶油小偷','泡泡糖','藍莓火箭','焦糖旋風','桃子汽水','棉花糖'];
@@ -48,7 +49,8 @@ export function generateCourse(seed, round, mapId=selectMapIds(seed)[round]) {
     }
     start+=length+(i===0?0:2.25+round*.14+random()*.3);
   }
-  return {seed,round,map,platforms,obstacles,covers:createCourseCovers(platforms,round),length:platforms.at(-1).end-4,width};
+  const length=platforms.at(-1).end-4;
+  return {seed,round,map,platforms,obstacles,covers:createCourseCovers(platforms,round),gates:generateTimedGates(platforms,length,THEMES[round].time,round),length,width};
 }
 export function obstaclePose(ob,time) {
   const angle=time*ob.speed+ob.phase,wave=Math.sin(angle);
@@ -62,9 +64,10 @@ export function createRacers(name,seed) {
 }
 export function resetRacers(racers) {
   resetTerrainCollisionHistory(racers);
-  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,monsterHits:0,lastMonsterHit:null,pushHeld:false,sheltered:false}));
+  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,monsterHits:0,lastMonsterHit:null,pushHeld:false,sheltered:false,gatePasses:0,gateTimes:[],eliminated:false,eliminationPlace:null,eliminatedAt:null,eliminationGate:null,eliminationProgress:null}));
 }
 export function botInput(r,course,time,racers=[],event=null) {
+  if(r.finished||r.eliminated)return {x:0,forward:0,jump:false,dive:false,grab:false};
   const lane=r.lane+Math.sin(r.respawns*2.4)*1.4;
   const segment=course.platforms.find(s=>s.end>r.p+2) || course.platforms.at(-1);
   let target=platformX(segment,time+.4)+clamp(lane,-segment.width/2+1.4,segment.width/2-1.4);
@@ -103,7 +106,7 @@ export function botInput(r,course,time,racers=[],event=null) {
   }
   if(segment.kind==='moving')target=platformX(segment,time+.3)+clamp(lane,-1.3,1.3);
   if(r.grabTarget!==null&&!jump)target=segment.x+(lane>=0?1:-1)*(segment.width/2-1.6);
-  const nearby=racers.some(other=>other.id!==r.id&&!other.finished&&Math.hypot(other.x-r.x,other.p-r.p)<GRAB.range&&Math.abs(other.y-r.y)<1);
+  const nearby=racers.some(other=>other.id!==r.id&&!other.finished&&!other.eliminated&&Math.hypot(other.x-r.x,other.p-r.p)<GRAB.range&&Math.abs(other.y-r.y)<1);
   let grab=r.grabTarget!==null || (!jump&&nearby&&(time+r.id*.71)%(3.6-r.skill*.3)<.65);
   const dive=r.grabbedBy!==null&&r.grabbedTime>.3&&r.diveCooldown<=0;
   const walls=coverBoxes(course,time),wall=walls.find(b=>b.p-r.p>-b.depth/2-.7&&b.p-r.p<6.5);
@@ -151,7 +154,7 @@ export function stepGrabs(racers,inputs,dt) {
     if(holder.grabTarget===null)continue;
     const victim=racers.find(r=>r.id===holder.grabTarget),input=inputFor(holder),escape=victim&&inputFor(victim).dive&&!victim.diveHeld&&victim.diveCooldown<=0&&victim.stun<=0;
     holder.grabTime+=dt;
-    if(!victim||!input.grab||input.jump||input.dive||escape||holder.finished||victim.finished||holder.stun>0||victim.stun>0||holder.frozen>0||victim.frozen>0||holder.paralyzed>0||victim.paralyzed>0||holder.y<-.5||victim.y<-.5||Math.abs(holder.y-victim.y)>1.4||Math.hypot(holder.x-victim.x,holder.p-victim.p)>3||holder.grabTime>=GRAB.duration) {
+    if(!victim||!input.grab||input.jump||input.dive||escape||holder.finished||victim.finished||holder.eliminated||victim.eliminated||holder.stun>0||victim.stun>0||holder.frozen>0||victim.frozen>0||holder.paralyzed>0||victim.paralyzed>0||holder.y<-.5||victim.y<-.5||Math.abs(holder.y-victim.y)>1.4||Math.hypot(holder.x-victim.x,holder.p-victim.p)>3||holder.grabTime>=GRAB.duration) {
       if(escape)victim.escapes++;
       releaseGrab(holder,racers);continue;
     }
@@ -162,17 +165,18 @@ export function stepGrabs(racers,inputs,dt) {
     victim.vx-=nx*pull;victim.vp-=np*pull;holder.vx+=nx*pull;holder.vp+=np*pull;
   }
   // Under the lightning curse, E repels instead of grabbing. It shares grab cooldown.
-  for(const r of racers){const input=inputFor(r),pressed=input.push&&!r.pushHeld;r.pushHeld=!!input.push;
-    if(!pressed||r.finished||r.grabCooldown>0||r.stun>0||r.frozen>0||r.paralyzed>0)continue;
-    const target=racers.filter(v=>v.id!==r.id&&!v.finished&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p))[0];
+  for(const r of racers){if(r.eliminated)continue;const input=inputFor(r),pressed=input.push&&!r.pushHeld;r.pushHeld=!!input.push;
+    if(!pressed||r.finished||r.eliminated||r.grabCooldown>0||r.stun>0||r.frozen>0||r.paralyzed>0)continue;
+    const target=racers.filter(v=>v.id!==r.id&&!v.finished&&!v.eliminated&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p))[0];
     r.grabCooldown=target?GRAB.cooldown:.25;if(!target)continue;
     const dx=target.x-r.x,dp=target.p-r.p,d=Math.hypot(dx,dp)||1;target.vx+=dx/d*7;target.vp+=dp/d*7;target.impact=.3;r.vx-=dx/d*2;r.vp-=dp/d*2;
   }
   for(const r of racers) {
     // Holding E searches until a catch succeeds; one hold cannot chain catches.
+    if(r.eliminated)continue;
     const input=inputFor(r),pressed=input.grab&&!r.grabHeld;if(!input.grab)r.grabHeld=false;
-    if(!pressed||r.grabCooldown>0||r.grabTarget!==null||r.grabbedBy!==null||r.finished||r.stun>0||r.frozen>0||r.paralyzed>0||r.dive>0||r.y<-.1||input.dive||input.jump)continue;
-    const victim=racers.filter(v=>v.id!==r.id&&!v.finished&&v.grabbedBy===null&&v.grabTarget===null&&v.grabImmune<=0&&v.y>=-.1&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p)||a.id-b.id)[0];
+    if(!pressed||r.grabCooldown>0||r.grabTarget!==null||r.grabbedBy!==null||r.finished||r.eliminated||r.stun>0||r.frozen>0||r.paralyzed>0||r.dive>0||r.y<-.1||input.dive||input.jump)continue;
+    const victim=racers.filter(v=>v.id!==r.id&&!v.finished&&!v.eliminated&&v.grabbedBy===null&&v.grabTarget===null&&v.grabImmune<=0&&v.y>=-.1&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p)||a.id-b.id)[0];
     if(!victim){r.grabCooldown=.25;continue;}
     r.grabTarget=victim.id;r.grabTime=0;r.grabHeld=true;victim.grabbedBy=r.id;victim.grabbedTime=0;r.grabs++;
     const dx=victim.x-r.x,dp=victim.p-r.p,d=Math.hypot(dx,dp)||1;
@@ -185,7 +189,7 @@ function hit(r,dx,dp,strength=7) {
   r.vx=dx/length*strength;r.vp=dp/length*strength;r.vy=5;r.ground=false;r.stun=.5;
 }
 export function stepRacer(r,input,course,time,dt) {
-  if(r.finished) return;
+  if(r.finished||r.eliminated) return;
   r.stun=Math.max(0,r.stun-dt);r.impact=Math.max(0,r.impact-dt);r.dive=Math.max(0,r.dive-dt);r.diveCooldown=Math.max(0,r.diveCooldown-dt);
   const standing=platformAt(course,r.x,r.p,0,time-dt);
   const speed=8.8*(r.id===0?1:r.skill)*(r.grabbedBy!==null?.42:r.grabTarget!==null?.68:1)*(r.burning>0?.65:1), norm=Math.max(1,Math.hypot(input.x,input.forward));
@@ -242,7 +246,7 @@ export function resolveRacerCollisions(racers,course=null,time=0) {
   // All racers have equal mass. Multiple passes propagate shoves through a crowd.
   for(let pass=0;pass<3;pass++) {
     for(let i=0;i<racers.length;i++) for(let j=i+1;j<racers.length;j++) {
-    const a=racers[i],b=racers[j];if(a.finished||b.finished)continue;
+    const a=racers[i],b=racers[j];if(a.finished||b.finished||a.eliminated||b.eliminated)continue;
     const verticalGap=Math.max(0,Math.abs(a.y-b.y)-.63);
     if(verticalGap>=1.12)continue;
     const contactDistance=Math.sqrt(1.12**2-verticalGap**2);
@@ -273,10 +277,11 @@ export function resolveRacerCollisions(racers,course=null,time=0) {
     if(course)resolveTerrainCollisions(racers,course,time);
   }
 }
-export function raceOrder(racers) {return [...racers].sort((a,b)=> a.finished!==b.finished?(a.finished?-1:1):a.finished?a.place-b.place:b.p-a.p||a.id-b.id);}
+export function raceOrder(racers) {return [...racers].sort((a,b)=>a.finished!==b.finished?(a.finished?-1:1):a.finished?a.place-b.place:!!a.eliminated!==!!b.eliminated?(a.eliminated?1:-1):a.eliminated?a.eliminationPlace-b.eliminationPlace:b.p-a.p||a.id-b.id);}
+export function roundPoints(place,round,finished) {return Math.round((13-place)*10*(1+round*.5)*(finished?1:.5));}
 export function awardRound(racers,round,timeLimit) {
   const order=raceOrder(racers);
-  order.forEach((r,i)=>{const points=Math.round((12-i)*10*(1+round*.5)*(r.finished?1:.5));const time=r.finishTime??timeLimit;r.points+=points;r.totalTime+=time;r.results.push({place:i+1,points,time,finished:r.finished});});
+  order.forEach((r,i)=>{const place=r.eliminated?r.eliminationPlace:i+1,points=roundPoints(place,round,r.finished),time=r.finished?r.finishTime??timeLimit:timeLimit;r.points+=points;r.totalTime+=time;r.results.push({place,points,time,finished:r.finished,eliminated:!!r.eliminated,eliminationGate:r.eliminationGate??null,eliminatedAt:r.eliminatedAt??null,status:r.finished?'finished':r.eliminated?'eliminated':'timeout'});});
   return order;
 }
 export function finalOrder(racers) {return [...racers].sort((a,b)=>b.points-a.points||a.totalTime-b.totalTime||a.id-b.id);}

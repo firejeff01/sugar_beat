@@ -83,3 +83,21 @@ body.touch-mode .results-panel{max-height:calc(100dvh - var(--safe-top) - var(--
   body.touch-mode .lobby-copy{column-gap:20px}body.touch-mode .eyebrow{font-size:8px;letter-spacing:0}body.touch-mode h1{font-size:38px}
   body.touch-mode #monster-warning{width:45%}body.touch-mode #status-panel{max-width:128px}
 }
+/* Keep checkpoint deadlines visible without taking room from either thumb. */
+body.touch-mode #gate-status{top:calc(var(--safe-top) + 190px);left:max(12px,var(--safe-left));right:max(12px,var(--safe-right));width:auto;padding:7px 11px;gap:8px;border-radius:11px}
+body.touch-mode #gate-label{font-size:12px}body.touch-mode #gate-detail{font-size:9px;margin-top:1px}body.touch-mode #gate-timer{font-size:24px}
+body.touch-mode #gate-status[data-state="eliminated"] #gate-timer{font-size:18px}
+body.touch-mode #monster-warning{top:calc(var(--safe-top) + 255px)}
+body.touch-mode #status-panel{top:calc(var(--safe-top) + 333px)}
+body.touch-mode:has(#monster-warning.hidden) #status-panel{top:calc(var(--safe-top) + 255px)}
+@media(min-width:761px) and (min-height:501px){
+  body.touch-mode #gate-status{left:50%;right:auto;transform:translateX(-50%);width:48%;max-width:480px}
+}
+@media(orientation:landscape) and (max-height:500px){
+  body.touch-mode #gate-status{top:calc(var(--safe-top) + 80px);left:50%;right:auto;transform:translateX(-50%);width:48%;max-width:380px;padding:5px 10px}
+  body.touch-mode #gate-label{font-size:10px}body.touch-mode #gate-detail{font-size:8px}body.touch-mode #gate-timer{font-size:21px}
+  body.touch-mode #gate-status[data-state="eliminated"] #gate-timer{font-size:16px}
+  body.touch-mode #monster-warning{top:calc(var(--safe-top) + 133px)}
+  body.touch-mode #status-panel{top:calc(var(--safe-top) + 195px)}
+  body.touch-mode:has(#monster-warning.hidden) #status-panel{top:calc(var(--safe-top) + 133px)}
+}

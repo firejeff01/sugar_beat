@@ -38,11 +38,14 @@ test('compact lobby and touch control layout fit the viewport',async({page})=>{
 
 test('E grabs a nearby AI, release starts cooldown, and Shift escapes an AI grab',async({page})=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  // Screenshot latency must not consume the .85-second grip or its cooldown.
+  await page.clock.install({time:new Date('2026-09-05T00:00:00Z')});
   await page.goto('/?test');await page.locator('#start-form button').click();await page.evaluate(()=>window.__gameTest.advance(4));
+  await page.clock.pauseAt(new Date('2026-09-05T00:10:00Z'));
   await page.evaluate(()=>window.__gameTest.arrangeGrab());
   await page.keyboard.down('e');await page.evaluate(()=>window.__gameTest.advance(.05));
   let s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.grabs).toBe(1);expect(s.player.grabTarget).toBe(1);
-  await expect(page.locator('#grab-label')).toContainText('抓到了');await page.screenshot({path:'test-results/grab.png'});
+  await expect(page.locator('#grab-label')).toContainText('抓到了');await page.clock.runFor(17);await page.screenshot({path:'test-results/grab.png'});
   await page.keyboard.up('e');await page.evaluate(()=>window.__gameTest.advance(.05));s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.grabTarget).toBeNull();expect(s.player.grabCooldown).toBeGreaterThan(2);
   await page.evaluate(()=>window.__gameTest.arrangeGrab(true));await page.keyboard.down('Shift');await page.evaluate(()=>window.__gameTest.advance(.05));await page.keyboard.up('Shift');
   s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.grabbedBy).toBeNull();expect(s.player.escapes).toBe(1);expect(errors).toEqual([]);
@@ -72,7 +75,10 @@ test('monster warning, fire/water/ice visuals, lightning inversion and paused st
 
 test('terrain shelters all monster types; leaving the green zone exposes the player',async({page})=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  // Keep each forced attack active while inspecting the shelter and screenshot.
+  await page.clock.install({time:new Date('2026-09-05T00:00:00Z')});
   await page.goto('/?test');await page.locator('#start-form button').click();await page.evaluate(()=>window.__gameTest.advance(4));
+  await page.clock.pauseAt(new Date('2026-09-05T00:10:00Z'));
   for(const [index,type] of ['fire','water','ice','lightning'].entries()){
     const side=index%2?-1:1;
     await page.evaluate(({type,side})=>window.__gameTest.arrangeShelter(type,side),{type,side});
@@ -80,7 +86,7 @@ test('terrain shelters all monster types; leaving the green zone exposes the pla
     await page.evaluate(()=>window.__gameTest.advance(1.8));
     let s=await page.evaluate(()=>window.__gameTest.snapshot());
     expect(s.player.monsterHits).toBe(0);expect(s.player.sheltered).toBe(true);
-    if(type==='fire')await page.screenshot({path:'test-results/terrain-shelter.png'});
+    if(type==='fire'){await page.clock.runFor(17);await page.screenshot({path:'test-results/terrain-shelter.png'});}
     // S walks out around the end of the wall while still inside the attack stripe.
     await page.keyboard.down('s');await page.evaluate(()=>window.__gameTest.advance(.3));await page.keyboard.up('s');
     s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.monsterHits).toBe(1);expect(s.player.lastMonsterHit).toBe(type);
@@ -89,6 +95,6 @@ test('terrain shelters all monster types; leaving the green zone exposes the pla
   await expect(page.locator('#monster-warning')).not.toContainText('掩體保護中');
   await page.evaluate(()=>window.__gameTest.advance(1.8));expect((await page.evaluate(()=>window.__gameTest.snapshot())).player.frozen).toBeGreaterThan(0);
   await page.evaluate(()=>window.__gameTest.arrangeShelter('water',-1));await page.setViewportSize({width:390,height:844});
-  await page.screenshot({path:'test-results/terrain-shelter-mobile.png'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.clock.runFor(50);await page.screenshot({path:'test-results/terrain-shelter-mobile.png'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });

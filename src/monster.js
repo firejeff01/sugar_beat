@@ -12,7 +12,7 @@ export function createMonsterDirector(seed,round) {
   return {random:rng(seed^Math.imul(round+1,0x45d9f3b)),round,nextAt:3.8,event:null,sequence:0,bag:[],history:[]};
 }
 export function beginMonsterEvent(director,course,racers,time,forcedType) {
-  const random=director.random,eligible=racers.filter(r=>!r.finished&&r.y>-.5);
+  const random=director.random,eligible=racers.filter(r=>!r.finished&&!r.eliminated&&r.y>-.5);
   if(!eligible.length)return null;
   if(!director.bag.length){director.bag=Object.keys(ATTACKS);for(let i=3;i>0;i--){const j=Math.floor(random()*(i+1));[director.bag[i],director.bag[j]]=[director.bag[j],director.bag[i]];}}
   const type=forcedType??director.bag.pop();
@@ -31,9 +31,10 @@ export function eventPhase(event,time) {
   return time<event.attackAt?'warning':time<=event.endAt?'attack':'retreat';
 }
 export function insideMonsterAttack(event,racer) {
-  return !racer.finished&&racer.y>=-.25&&racer.y<3.4&&Math.abs(racer.p-event.p)<=event.depth/2&&Math.abs(racer.x-event.x)<=event.width/2;
+  return !racer.finished&&!racer.eliminated&&racer.y>=-.25&&racer.y<3.4&&Math.abs(racer.p-event.p)<=event.depth/2&&Math.abs(racer.x-event.x)<=event.width/2;
 }
 export function applyMonsterHit(r,type,direction) {
+  if(r.finished||r.eliminated)return;
   r.monsterHits++;r.lastMonsterHit=type;r.dive=0;
   if(type==='fire'){r.charred=3.5;r.burning=2.5;r.stun=Math.max(r.stun,.35);r.vy=3;r.ground=false;}
   if(type==='water'){r.soaked=2;r.vx=direction*14;r.vp*=.35;r.vy=3;r.ground=false;r.impact=.9;r.stun=Math.max(r.stun,.32);}
@@ -66,7 +67,7 @@ export function advanceStatuses(r,dt) {
   for(const key of ['charred','burning','soaked','frozen'])r[key]=clean(Math.max(0,r[key]-dt));
 }
 export function effectiveInput(r,input) {
-  if(r.frozen>0||r.paralyzed>0)return {x:0,forward:0,jump:false,dive:false,grab:false,push:false,backDive:false};
+  if(r.finished||r.eliminated||r.frozen>0||r.paralyzed>0)return {x:0,forward:0,jump:false,dive:false,grab:false,push:false,backDive:false};
   if(r.reversed<=0)return {...input,push:false,backDive:false};
   return {...input,x:input.x?-input.x:0,forward:input.forward?-input.forward:0,jump:!!input.dive,dive:!!input.jump,grab:false,push:!!input.grab,backDive:true};
 }

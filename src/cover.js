@@ -105,7 +105,7 @@ export function resolveTerrainCollisions(racers,course,time=0) {
   if(!course?.covers?.length)return;
   const boxes=coverBoxes(course,time);
   for(const racer of racers) {
-    if(racer.finished)continue;
+    if(racer.finished||racer.eliminated)continue;
     const previous=previousPositions.get(racer);
     const canSweep=previous?.course===course&&previous.respawns===racer.respawns&&time>previous.time&&time-previous.time<=.1&&Math.hypot(racer.x-previous.x,racer.p-previous.p)<20;
     for(let index=0;index<boxes.length;index++) {
