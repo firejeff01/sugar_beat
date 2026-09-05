@@ -140,7 +140,7 @@ function animate(now) {
   if(state!=='paused') {
     if(state==='race'||state==='countdown'){accumulator+=dt;while(accumulator>=1/60){tick(1/60);accumulator-=1/60;}}
     else simulationTime+=dt;
-    obstacleMeshes.forEach(({ob,g})=>{const pose=obstaclePose(ob,simulationTime);if(g.userData.pivot)g.userData.pivot.rotation.y=-pose.angle;if(g.userData.moving)g.userData.moving.position.x=pose.x-ob.x;});
+    obstacleMeshes.forEach(({ob,g})=>{const pose=obstaclePose(ob,simulationTime);if(g.userData.pivot)g.userData.pivot.rotation.y=pose.angle;if(g.userData.moving)g.userData.moving.position.x=pose.x-ob.x;});
     racerMeshes.forEach((g,i)=>{
       const r=racers[i],data=g.userData,run=state==='lobby'?0:Math.hypot(r.vx,r.vp),bob=r.ground?Math.sin(now*.014+i)*Math.min(run*.007,.065):0;
       g.position.set(r.x,r.y+bob,-r.p);
