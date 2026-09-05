@@ -1,16 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateCourse,platformAt,platformX,obstaclePose,createRacers,resetRacers,stepRacer,stepGrabs,GRAB,botInput,resolveRacerCollisions,awardRound,finalOrder,THEMES} from '../src/game.js';
+import {generateCourse,MAP_CATALOG,selectMapIds,platformAt,platformX,obstaclePose,createRacers,resetRacers,stepRacer,stepGrabs,GRAB,botInput,resolveRacerCollisions,awardRound,finalOrder,THEMES} from '../src/game.js';
+import {createMonsterDirector,advanceStatuses,stepMonsterEvents,effectiveInput} from '../src/monster.js';
 
 test('same seed reproduces courses; new seeds change them; rounds get harder',()=>{
   assert.deepEqual(generateCourse(42,0),generateCourse(42,0));
   assert.notDeepEqual(generateCourse(42,0).platforms,generateCourse(43,0).platforms);
+  assert.equal(MAP_CATALOG.length,36);assert.equal(new Set(MAP_CATALOG.map(m=>m.name)).size,36);
   const courses=[0,1,2].map(r=>generateCourse(42,r));
   for(let r=1;r<3;r++){assert.ok(courses[r].length>courses[r-1].length);assert.ok(courses[r].width<courses[r-1].width);assert.ok(courses[r].obstacles.length>courses[r-1].obstacles.length);}
   for(let seed=0;seed<100;seed++)for(let r=0;r<3;r++) {
     const c=generateCourse(seed,r);
-    assert.ok(new Set(c.platforms.map(p=>p.kind)).size>=(r===0?5:6));
-    for(let i=1;i<c.platforms.length;i++){const a=c.platforms[i-1],b=c.platforms[i];assert.ok(b.start-a.end<3);assert.ok(Math.abs(a.x-b.x)<1.8);assert.ok(b.width>=5);for(const time of [0,1,3,5]){assert.ok(Math.abs(platformX(a,time)-platformX(b,time+.6))<(a.width+b.width)/2-2,'landing zones must overlap');}}
+    assert.equal(new Set(selectMapIds(seed)).size,3);assert.ok(new Set(c.platforms.map(p=>p.kind)).size>=6);
+    assert.ok(c.width<=9.2&&c.platforms.length>=12&&c.obstacles.length>=16);assert.equal(c.map.difficulty,'極難');
+    for(let i=1;i<c.platforms.length;i++){const a=c.platforms[i-1],b=c.platforms[i];assert.ok(b.start-a.end<3);assert.ok(Math.abs(a.x-b.x)<1.8);assert.ok(b.width>=4.59);for(const time of [0,1,3,5]){assert.ok(Math.abs(platformX(a,time)-platformX(b,time+.6))<(a.width+b.width)/2-2,'landing zones must overlap');}}
   }
 });
 test('keyboard motion, jump, dive cooldown, and fall recovery are simulated',()=>{
@@ -21,13 +24,15 @@ test('keyboard motion, jump, dive cooldown, and fall recovery are simulated',()=
   stepRacer(r,{...input,dive:true},c,1.1,1/60);assert.ok(r.dive>0);assert.ok(r.diveCooldown>1);
   r.x=100;r.y=-9;stepRacer(r,input,c,2,1/60);assert.equal(r.respawns,1);assert.equal(r.x,r.checkpoint.x);
 });
-test('AI completes varied generated courses using the same movement and collision simulation',()=>{
-  const failures=[];let finishedTotal=0,total=0,grabs=0,escapes=0;
-  for(let seed=1;seed<=12;seed++) for(let round=0;round<3;round++) {
-    const course=generateCourse(seed,round),racers=createRacers('AI test',seed);resetRacers(racers);
+test('all 36 extreme maps run with AI, collision, grabbing and random monster attacks',()=>{
+  const failures=[];let finishedTotal=0,total=0,grabs=0,escapes=0,hits=0;
+  for(let mapId=1;mapId<=36;mapId++) {
+    const seed=1234+mapId*199,round=(mapId-1)%3,course=generateCourse(seed,round,mapId),racers=createRacers('AI test',seed),director=createMonsterDirector(seed^mapId,round);resetRacers(racers);director.nextAt+=3.4;
     for(let step=0;step<THEMES[round].time*60;step++) {
-      const time=step/60;
-      const inputs=new Map(racers.map(r=>[r.id,botInput(r,course,time,racers)]));
+      const time=step/60+3.4;
+      for(const r of racers)advanceStatuses(r,1/60);
+      stepMonsterEvents(director,course,racers,time,1/60);
+      const inputs=new Map(racers.map(r=>[r.id,effectiveInput(r,botInput(r,course,time,racers,director.event))]));
       stepGrabs(racers,inputs,1/60);
       for(const r of racers) stepRacer(r,inputs.get(r.id),course,time,1/60);
       resolveRacerCollisions(racers);
@@ -36,13 +41,14 @@ test('AI completes varied generated courses using the same movement and collisio
     }
     const count=racers.filter(r=>r.finished).length;finishedTotal+=count;total+=12;
     grabs+=racers.reduce((n,r)=>n+r.grabs,0);escapes+=racers.reduce((n,r)=>n+r.escapes,0);
+    hits+=racers.reduce((n,r)=>n+r.monsterHits,0);assert.equal(new Set(director.history.map(e=>e.type)).size,4);
     assert.ok(racers.every(r=>Number.isFinite(r.x+r.y+r.p+r.vx+r.vy+r.vp)));
-    // The final now deliberately combines hazards; some timeouts are part of the race.
-    if(count<[9,9,4][round])failures.push({seed,round,count});
+    // Every map is now extreme. Timeouts are expected, but each must be finishable.
+    if(count<1)failures.push({mapId,round,count});
   }
   assert.ok(failures.length===0,JSON.stringify(failures));
-  assert.ok(finishedTotal/total>.87,`Only ${finishedTotal}/${total} finished`);
-  assert.ok(grabs>30&&escapes>10,'AI must use grabs and escapes during real races');
+  assert.ok(finishedTotal/total>.4,`Only ${finishedTotal}/${total} finished`);
+  assert.ok(grabs>30&&escapes>10&&hits>100,'AI must grab, escape and suffer real monster effects');
 });
 
 function collisionPair() {

@@ -7,34 +7,46 @@ export const THEMES = [
 ];
 export const TERRAIN_NAMES={plain:'糖霜跑道',ice:'溜冰糖漿 · 提早轉向',conveyor:'逆向輸送帶 · 小心側滑',bridge:'獨木糖橋 · 別被擠下去',split:'雙線甜甜圈 · 中間是洞',moving:'漂移果凍 · 抓準落點'};
 export const GRAB={range:2.05,duration:.85,cooldown:2.5,immunity:1.25};
+const MAP_REGIONS=['焦糖煉獄','極凍糖谷','逆流工廠','斷橋深淵','空心迷城','漂浮禁區'];
+const MAP_TRIALS=['撞柱暴走','旋刃絞盤','拳柱伏擊','封路惡夢','巨槌審判','狂風裂隙'];
+const MAP_TERRAINS=['plain','ice','conveyor','bridge','split','moving'];
+const MAP_HAZARDS=['bumpers','sweeper','piston','slider','hammer','fan'];
+export const MAP_CATALOG=MAP_REGIONS.flatMap((region,a)=>MAP_TRIALS.map((trial,b)=>({id:a*6+b+1,name:`${region}・${trial}`,terrain:MAP_TERRAINS[a],hazard:MAP_HAZARDS[b],difficulty:'極難'})));
+export function selectMapIds(seed) {
+  const random=rng(seed),ids=MAP_CATALOG.map(m=>m.id);
+  for(let i=ids.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[ids[i],ids[j]]=[ids[j],ids[i]];}
+  return ids.slice(0,3);
+}
 export function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t ^= t + Math.imul(t ^ t >>> 7, 61 | t); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 export const clamp = (n,a,b) => Math.max(a,Math.min(b,n));
-export function generateCourse(seed, round) {
-  const random = rng(seed + round * 123457), platforms=[], obstacles=[];
-  const count=9+round*2, width=12.8-round*1.5;
+export function generateCourse(seed, round, mapId=selectMapIds(seed)[round]) {
+  const map=MAP_CATALOG.find(m=>m.id===mapId);
+  if(!map)throw new RangeError('Unknown map ID');
+  const random = rng(seed + round * 123457+mapId*8191), platforms=[], obstacles=[];
+  const count=12+round, width=9.2-round*.55;
   const shuffled=values=>{const bag=[...values];for(let i=bag.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}return bag;};
-  const terrains=shuffled(round===0?['ice','conveyor','bridge','split','plain']:['ice','conveyor','bridge','split','moving','plain']);
-  const hazards=shuffled(round===0?['bumpers','sweeper','piston']:['bumpers','sweeper','piston','slider','hammer','fan']);
+  const terrains=[map.terrain,...shuffled(MAP_TERRAINS.filter(t=>t!==map.terrain))];
+  const hazards=[map.hazard,...shuffled(MAP_HAZARDS.filter(h=>h!==map.hazard))];
   let start=-7, center=0;
   for(let i=0;i<count;i++) {
     const length=i===0?23:17+random()*4;
     if(i>0) center=clamp(center+(random()-.5)*3.4,-4,4);
     const kind=i===0||i===count-1?'plain':terrains[(i-1)%terrains.length];
-    const segmentWidth=kind==='bridge'?6.8-round*.9:width;
-    const platform={start,end:start+length,x:center,width:segmentWidth,kind,phase:random()*Math.PI*2,speed:.65+round*.2,amplitude:kind==='moving'?.85+round*.2:0,beltX:kind==='conveyor'?(random()<.5?-1:1)*(1.1+round*.5):0,beltP:kind==='conveyor'?-1.6-round*.3:0};
+    const segmentWidth=i===0?12.8:kind==='bridge'?5.3-round*.35:width;
+    const platform={start,end:start+length,x:center,width:segmentWidth,kind,phase:random()*Math.PI*2,speed:.95+round*.15,amplitude:kind==='moving'?1.15+round*.15:0,beltX:kind==='conveyor'?(random()<.5?-1:1)*(1.7+round*.3):0,beltP:kind==='conveyor'?-2-round*.2:0};
     platforms.push(platform);
     if(i>0 && i<count-1) {
-      const add=(kind,p,x=center)=>obstacles.push({kind,p,x,phase:random()*Math.PI*2,speed:(.9+random()*.4)*(1+round*.5),radius:segmentWidth*.42,offset:(random()-.5)*2,direction:random()<.5?-1:1});
-      if(kind==='split') {add('piston',start+length*.46,center-segmentWidth*.3);if(round>0)add('piston',start+length*.67,center+segmentWidth*.3);}
-      else if(kind==='bridge'){add(round===0?'sweeper':'hammer',start+length*.55);}
+      const add=(kind,p,x=center)=>obstacles.push({kind,p,x,phase:random()*Math.PI*2,speed:1.85+random()*.55+round*.22,radius:segmentWidth*.42,offset:(random()-.5)*2,direction:random()<.5?-1:1});
+      if(kind==='split') {add('piston',start+length*.46,center-segmentWidth*.3);add('piston',start+length*.67,center+segmentWidth*.3);}
+      else if(kind==='bridge'){add('hammer',start+length*.42);add('sweeper',start+length*.75);}
       else if(kind!=='moving'){
-        add(hazards[(i-1)%hazards.length],start+length*(round===2?.4:.54));
-        if(round===2)add(hazards[(i+2)%hazards.length],start+length*.73);
+        add(i===1?map.hazard:hazards[(i-1)%hazards.length],start+length*.4);
+        add(hazards[(i+2)%hazards.length],start+length*.73);
       }
     }
-    start+=length+(i===0?0:1.6+round*.4+random()*.45);
+    start+=length+(i===0?0:2.25+round*.14+random()*.3);
   }
-  return {seed,round,platforms,obstacles,length:platforms.at(-1).end-4,width};
+  return {seed,round,map,platforms,obstacles,length:platforms.at(-1).end-4,width};
 }
 export function obstaclePose(ob,time) {
   const angle=time*ob.speed+ob.phase,wave=Math.sin(angle);
@@ -47,9 +59,9 @@ export function createRacers(name,seed) {
   return [name,...BOT_NAMES].map((name,id)=>({id,name,color:COLORS[id],skill:.87+random()*.2,lane:(random()-.5)*5,points:0,results:[],totalTime:0}));
 }
 export function resetRacers(racers) {
-  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0}));
+  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,monsterHits:0,lastMonsterHit:null,pushHeld:false}));
 }
-export function botInput(r,course,time,racers=[]) {
+export function botInput(r,course,time,racers=[],event=null) {
   const lane=r.lane+Math.sin(r.respawns*2.4)*1.4;
   const segment=course.platforms.find(s=>s.end>r.p+2) || course.platforms.at(-1);
   let target=platformX(segment,time+.4)+clamp(lane,-segment.width/2+1.4,segment.width/2-1.4);
@@ -89,6 +101,9 @@ export function botInput(r,course,time,racers=[]) {
   const nearby=racers.some(other=>other.id!==r.id&&!other.finished&&Math.hypot(other.x-r.x,other.p-r.p)<GRAB.range&&Math.abs(other.y-r.y)<1);
   const grab=r.grabTarget!==null || (!jump&&nearby&&(time+r.id*.71)%(3.6-r.skill*.3)<.65);
   const dive=r.grabbedBy!==null&&r.grabbedTime>.3&&r.diveCooldown<=0;
+  if(event&&time>event.startAt+.5+(1.07-r.skill)*1.4&&time<event.endAt){const distance=event.p-r.p;if(distance>event.depth/2+.35&&distance<event.depth/2+4)forward=0;}
+  // Release the jump key while airborne so adjacent traps can be jumped in turn.
+  jump=jump&&r.ground&&!r.jumpHeld;
   return {x:clamp((target-r.x)*1.5-r.vx*(segment.kind==='ice'?.65:.08),-1,1),forward,jump,dive,grab};
 }
 
@@ -104,7 +119,7 @@ export function stepGrabs(racers,inputs,dt) {
     if(holder.grabTarget===null)continue;
     const victim=racers.find(r=>r.id===holder.grabTarget),input=inputFor(holder),escape=victim&&inputFor(victim).dive&&!victim.diveHeld&&victim.diveCooldown<=0&&victim.stun<=0;
     holder.grabTime+=dt;
-    if(!victim||!input.grab||input.jump||input.dive||escape||holder.finished||victim.finished||holder.stun>0||victim.stun>0||holder.y<-.5||victim.y<-.5||Math.abs(holder.y-victim.y)>1.4||Math.hypot(holder.x-victim.x,holder.p-victim.p)>3||holder.grabTime>=GRAB.duration) {
+    if(!victim||!input.grab||input.jump||input.dive||escape||holder.finished||victim.finished||holder.stun>0||victim.stun>0||holder.frozen>0||victim.frozen>0||holder.paralyzed>0||victim.paralyzed>0||holder.y<-.5||victim.y<-.5||Math.abs(holder.y-victim.y)>1.4||Math.hypot(holder.x-victim.x,holder.p-victim.p)>3||holder.grabTime>=GRAB.duration) {
       if(escape)victim.escapes++;
       releaseGrab(holder,racers);continue;
     }
@@ -114,10 +129,17 @@ export function stepGrabs(racers,inputs,dt) {
     const pull=clamp((d-1.05)*24+separating*4,0,26)*dt;
     victim.vx-=nx*pull;victim.vp-=np*pull;holder.vx+=nx*pull;holder.vp+=np*pull;
   }
+  // Under the lightning curse, E repels instead of grabbing. It shares grab cooldown.
+  for(const r of racers){const input=inputFor(r),pressed=input.push&&!r.pushHeld;r.pushHeld=!!input.push;
+    if(!pressed||r.finished||r.grabCooldown>0||r.stun>0||r.frozen>0||r.paralyzed>0)continue;
+    const target=racers.filter(v=>v.id!==r.id&&!v.finished&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p))[0];
+    r.grabCooldown=target?GRAB.cooldown:.25;if(!target)continue;
+    const dx=target.x-r.x,dp=target.p-r.p,d=Math.hypot(dx,dp)||1;target.vx+=dx/d*7;target.vp+=dp/d*7;target.impact=.3;r.vx-=dx/d*2;r.vp-=dp/d*2;
+  }
   for(const r of racers) {
     // Holding E searches until a catch succeeds; one hold cannot chain catches.
     const input=inputFor(r),pressed=input.grab&&!r.grabHeld;if(!input.grab)r.grabHeld=false;
-    if(!pressed||r.grabCooldown>0||r.grabTarget!==null||r.grabbedBy!==null||r.finished||r.stun>0||r.dive>0||r.y<-.1||input.dive||input.jump)continue;
+    if(!pressed||r.grabCooldown>0||r.grabTarget!==null||r.grabbedBy!==null||r.finished||r.stun>0||r.frozen>0||r.paralyzed>0||r.dive>0||r.y<-.1||input.dive||input.jump)continue;
     const victim=racers.filter(v=>v.id!==r.id&&!v.finished&&v.grabbedBy===null&&v.grabTarget===null&&v.grabImmune<=0&&v.y>=-.1&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p)||a.id-b.id)[0];
     if(!victim){r.grabCooldown=.25;continue;}
     r.grabTarget=victim.id;r.grabTime=0;r.grabHeld=true;victim.grabbedBy=r.id;victim.grabbedTime=0;r.grabs++;
@@ -134,19 +156,21 @@ export function stepRacer(r,input,course,time,dt) {
   if(r.finished) return;
   r.stun=Math.max(0,r.stun-dt);r.impact=Math.max(0,r.impact-dt);r.dive=Math.max(0,r.dive-dt);r.diveCooldown=Math.max(0,r.diveCooldown-dt);
   const standing=platformAt(course,r.x,r.p,0,time-dt);
-  const speed=8.8*(r.id===0?1:r.skill)*(r.grabbedBy!==null?.42:r.grabTarget!==null?.68:1), norm=Math.max(1,Math.hypot(input.x,input.forward));
-  if(r.stun<=0) {
+  const speed=8.8*(r.id===0?1:r.skill)*(r.grabbedBy!==null?.42:r.grabTarget!==null?.68:1)*(r.burning>0?.65:1), norm=Math.max(1,Math.hypot(input.x,input.forward));
+  const locked=r.frozen>0||r.paralyzed>0;
+  if(locked){r.vx*=Math.exp(-dt*4);r.vp*=Math.exp(-dt*4);}
+  if(r.stun<=0&&!locked) {
     // Briefly reduce steering after a body impact so input cannot erase its impulse.
     const lerp=1-Math.exp(-dt*(r.impact>0?3:r.ground?(standing?.kind==='ice'?2.2:14):5));
     const boost=r.dive>0?1.65:1;
     r.vx+=(input.x/norm*speed*boost-r.vx)*lerp;
     r.vp+=(input.forward/norm*speed*boost-r.vp)*lerp;
   }
-  if(input.jump && !r.jumpHeld && r.ground && r.stun<=0) {r.vy=9.7;r.ground=false;}
-  if(input.dive && !r.diveHeld && r.diveCooldown<=0 && r.stun<=0) {
+  if(input.jump && !r.jumpHeld && r.ground && r.stun<=0&&!locked) {r.vy=9.7;r.ground=false;}
+  if(input.dive && !r.diveHeld && r.diveCooldown<=0 && r.stun<=0&&!locked) {
     r.dive=.42;r.diveCooldown=1.15;
     if(r.ground) {r.vy=4.8;r.ground=false;}
-    r.vp=Math.max(r.vp,12);r.vy=Math.min(r.vy,4.8);
+    r.vp=input.backDive?Math.min(r.vp,-12):Math.max(r.vp,12);r.vy=Math.min(r.vy,4.8);
   }
   r.jumpHeld=input.jump;r.diveHeld=input.dive;
   const oldY=r.y;

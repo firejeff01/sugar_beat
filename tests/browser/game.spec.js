@@ -47,3 +47,25 @@ test('E grabs a nearby AI, release starts cooldown, and Shift escapes an AI grab
   await page.evaluate(()=>window.__gameTest.arrangeGrab(true));await page.keyboard.down('Shift');await page.evaluate(()=>window.__gameTest.advance(.05));await page.keyboard.up('Shift');
   s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.grabbedBy).toBeNull();expect(s.player.escapes).toBe(1);expect(errors).toEqual([]);
 });
+
+test('monster warning, fire/water/ice visuals, lightning inversion and paused status timers',async({page})=>{
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/?test');await page.locator('#start-form button').click();await page.evaluate(()=>window.__gameTest.advance(4));
+  await expect(page.locator('#round-label')).toContainText('/ 36 · 極難');
+  for(const type of ['fire','water','ice']){
+    await page.evaluate(type=>window.__gameTest.arrangeMonster(type),type);await expect(page.locator('#monster-warning')).toBeVisible();
+    const before=(await page.evaluate(()=>window.__gameTest.snapshot())).player.monsterHits;
+    await page.evaluate(()=>window.__gameTest.advance(1.8));const s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.monsterHits).toBe(before+1);expect(s.player.lastMonsterHit).toBe(type);
+    await expect(page.locator('#status-panel')).toBeVisible();await page.screenshot({path:`test-results/monster-${type}.png`});
+  }
+  await page.evaluate(()=>window.__gameTest.arrangeMonster('lightning'));await page.evaluate(()=>window.__gameTest.advance(1.75));
+  let s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.paralyzed).toBeGreaterThan(0);expect(s.player.reversed).toBe(5);
+  await page.keyboard.press('Escape');s=await page.evaluate(()=>window.__gameTest.snapshot());await page.evaluate(()=>window.__gameTest.advance(4));expect((await page.evaluate(()=>window.__gameTest.snapshot())).player.paralyzed).toBe(s.player.paralyzed);
+  await page.locator('#resume').click();await page.evaluate(()=>window.__gameTest.advance(.65));await expect(page.locator('#reverse-keys')).toContainText('W ⇄ S');
+  const start=(await page.evaluate(()=>window.__gameTest.snapshot())).player.p;await page.keyboard.down('w');await page.evaluate(()=>window.__gameTest.advance(.2));await page.keyboard.up('w');
+  expect((await page.evaluate(()=>window.__gameTest.snapshot())).player.p).toBeLessThan(start);
+  await page.screenshot({path:'test-results/monster-lightning.png'});
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/monster-mobile.png'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.evaluate(()=>window.__gameTest.stopMonsters());await page.evaluate(()=>window.__gameTest.advance(5));expect((await page.evaluate(()=>window.__gameTest.snapshot())).player.reversed).toBe(0);
+  expect(errors).toEqual([]);
+});
