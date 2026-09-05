@@ -1,4 +1,4 @@
-const DEAD_ZONE = .14;
+const DEAD_ZONE = .07;
 const ACTIONS = { Space: 'jump', ShiftLeft: 'dive', KeyE: 'grab' };
 
 /** Keep touch pointers independent from keyboard input, including simultaneous fingers. */
@@ -24,7 +24,7 @@ export function createTouchControls({ stick, buttons, isEnabled }) {
     const dy = event.clientY - bounds.top - bounds.height / 2;
     const distance = Math.hypot(dx, dy);
     const length = Math.min(distance / radius, 1);
-    const strength = Math.max(0, (length - DEAD_ZONE) / (1 - DEAD_ZONE));
+    const strength = Math.pow(Math.max(0, (length - DEAD_ZONE) / (1 - DEAD_ZONE)), .75);
     const directionX = distance ? dx / distance : 0;
     const directionY = distance ? dy / distance : 0;
     movement = { x: directionX * strength, forward: -directionY * strength };

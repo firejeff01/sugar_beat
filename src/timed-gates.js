@@ -22,7 +22,7 @@ function releaseInteractions(racer,racers) {
     if(other.grabTarget===racer.id){other.grabTarget=null;other.grabTime=0;}
     if(other.grabbedBy===racer.id){other.grabbedBy=null;other.grabbedTime=0;}
   }
-  Object.assign(racer,{grabTarget:null,grabbedBy:null,grabTime:0,grabbedTime:0,grabHeld:false,pushHeld:false,jumpHeld:false,diveHeld:false,dive:0,vx:0,vp:0,vy:0,sheltered:false});
+  Object.assign(racer,{grabTarget:null,grabbedBy:null,grabTime:0,grabbedTime:0,grabHeld:false,pushHeld:false,jumpHeld:false,diveHeld:false,dive:0,vx:0,vp:0,vy:0,sheltered:false,gateBlocked:false});
 }
 
 export function stepTimedGates(racers,course,elapsed,time,dt,previousPositions) {
@@ -31,7 +31,14 @@ export function stepTimedGates(racers,course,elapsed,time,dt,previousPositions) 
     if(racer.finished||racer.eliminated)continue;
     const previous=previousPositions?.get(racer.id);
     let gate=gates[racer.gatePasses??0];
+    racer.gateBlocked=false;
+    // The infection barrier holds a racer just before their next unpassed gate.
+    // Once cured, normal forward motion crosses the same line without backtracking.
+    if(gate&&racer.zombie>0&&racer.p>=gate.p-.025) {
+      racer.p=gate.p-.025;racer.vp=Math.min(0,racer.vp);racer.dive=0;racer.gateBlocked=true;
+    }
     while(gate&&previous&&previous.respawns===racer.respawns&&previous.p<gate.p&&racer.p>=gate.p) {
+      if(racer.zombie>0)break;
       const fraction=(gate.p-previous.p)/(racer.p-previous.p);
       const crossingTime=elapsed-dt+dt*fraction;
       const x=previous.x+(racer.x-previous.x)*fraction,y=previous.y+(racer.y-previous.y)*fraction;

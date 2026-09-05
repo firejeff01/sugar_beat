@@ -1,5 +1,6 @@
 import {createCourseCovers,coverBoxes,resolveTerrainCollisions,resetTerrainCollisionHistory} from './cover.js';
 import {generateTimedGates} from './timed-gates.js';
+import {zombieBotInput} from './zombie.js';
 
 export const COLORS = [0xff508d,0x33dbce,0xffc64b,0x9e83ff,0x57aaff,0xff865c,0x91d957,0xf775d2,0x5dd9ff,0xc7a3ff,0xffda82,0x55c7a2];
 export const BOT_NAMES = ['麻糬隊長','布丁暴走','薄荷閃電','芋泥球','檸檬蹦蹦','奶油小偷','泡泡糖','藍莓火箭','焦糖旋風','桃子汽水','棉花糖'];
@@ -56,7 +57,7 @@ export function obstaclePose(ob,time) {
   const angle=time*ob.speed+ob.phase,wave=Math.sin(angle);
   return { x:ob.kind==='slider'?ob.x+wave*ob.radius*.8:ob.kind==='hammer'?ob.x+wave*ob.radius*.72:ob.x+ob.offset,angle,y:.9+Math.abs(wave)*2.4,height:.18+Math.max(0,wave)*2.5,wind:ob.direction*(.7+.3*wave) };
 }
-export function platformX(platform,time=0) {return platform.x+(platform.amplitude||0)*Math.sin(time*platform.speed+platform.phase);}
+export function platformX(platform,time=0) {return platform.x+(platform.amplitude||0)*Math.sin(time*(platform.speed??1)+(platform.phase??0));}
 export function platformAt(course,x,p,margin=0,time=0) { return course.platforms.find(s=>p>=s.start && p<=s.end && Math.abs(x-platformX(s,time))<=s.width/2+margin && !(s.kind==='split'&&p>s.start+5&&p<s.end-3&&Math.abs(x-s.x)<1.2-margin)); }
 export function createRacers(name,seed) {
   const random=rng(seed);
@@ -64,7 +65,7 @@ export function createRacers(name,seed) {
 }
 export function resetRacers(racers) {
   resetTerrainCollisionHistory(racers);
-  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,monsterHits:0,lastMonsterHit:null,pushHeld:false,sheltered:false,gatePasses:0,gateTimes:[],eliminated:false,eliminationPlace:null,eliminatedAt:null,eliminationGate:null,eliminationProgress:null}));
+  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,monsterHits:0,lastMonsterHit:null,pushHeld:false,sheltered:false,gatePasses:0,gateTimes:[],eliminated:false,eliminationPlace:null,eliminatedAt:null,eliminationGate:null,eliminationProgress:null,zombie:0,biteCooldown:0,biteAt:-Infinity,zombieInfections:0,bites:0,lastInfectedBy:null,gateBlocked:false}));
 }
 export function botInput(r,course,time,racers=[],event=null) {
   if(r.finished||r.eliminated)return {x:0,forward:0,jump:false,dive:false,grab:false};
@@ -139,7 +140,8 @@ export function botInput(r,course,time,racers=[],event=null) {
   }
   // Release the jump key while airborne so adjacent traps can be jumped in turn.
   jump=jump&&r.ground&&!r.jumpHeld;
-  return {x:clamp((target-r.x)*1.5-r.vx*(segment.kind==='ice'?.65:.08),-1,1),forward,jump,dive,grab};
+  const input={x:clamp((target-r.x)*1.5-r.vx*(segment.kind==='ice'?.65:.08),-1,1),forward,jump,dive,grab,ai:true};
+  return r.zombie>0?zombieBotInput(r,course,time,racers,input):input;
 }
 
 function releaseGrab(holder,racers) {
@@ -154,7 +156,7 @@ export function stepGrabs(racers,inputs,dt) {
     if(holder.grabTarget===null)continue;
     const victim=racers.find(r=>r.id===holder.grabTarget),input=inputFor(holder),escape=victim&&inputFor(victim).dive&&!victim.diveHeld&&victim.diveCooldown<=0&&victim.stun<=0;
     holder.grabTime+=dt;
-    if(!victim||!input.grab||input.jump||input.dive||escape||holder.finished||victim.finished||holder.eliminated||victim.eliminated||holder.stun>0||victim.stun>0||holder.frozen>0||victim.frozen>0||holder.paralyzed>0||victim.paralyzed>0||holder.y<-.5||victim.y<-.5||Math.abs(holder.y-victim.y)>1.4||Math.hypot(holder.x-victim.x,holder.p-victim.p)>3||holder.grabTime>=GRAB.duration) {
+    if(!victim||!input.grab||input.jump||input.dive||escape||holder.zombie>0||holder.finished||victim.finished||holder.eliminated||victim.eliminated||holder.stun>0||victim.stun>0||holder.frozen>0||victim.frozen>0||holder.paralyzed>0||victim.paralyzed>0||holder.y<-.5||victim.y<-.5||Math.abs(holder.y-victim.y)>1.4||Math.hypot(holder.x-victim.x,holder.p-victim.p)>3||holder.grabTime>=GRAB.duration) {
       if(escape)victim.escapes++;
       releaseGrab(holder,racers);continue;
     }
@@ -166,7 +168,7 @@ export function stepGrabs(racers,inputs,dt) {
   }
   // Under the lightning curse, E repels instead of grabbing. It shares grab cooldown.
   for(const r of racers){if(r.eliminated)continue;const input=inputFor(r),pressed=input.push&&!r.pushHeld;r.pushHeld=!!input.push;
-    if(!pressed||r.finished||r.eliminated||r.grabCooldown>0||r.stun>0||r.frozen>0||r.paralyzed>0)continue;
+    if(!pressed||r.finished||r.eliminated||r.zombie>0||r.grabCooldown>0||r.stun>0||r.frozen>0||r.paralyzed>0)continue;
     const target=racers.filter(v=>v.id!==r.id&&!v.finished&&!v.eliminated&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p))[0];
     r.grabCooldown=target?GRAB.cooldown:.25;if(!target)continue;
     const dx=target.x-r.x,dp=target.p-r.p,d=Math.hypot(dx,dp)||1;target.vx+=dx/d*7;target.vp+=dp/d*7;target.impact=.3;r.vx-=dx/d*2;r.vp-=dp/d*2;
@@ -175,7 +177,7 @@ export function stepGrabs(racers,inputs,dt) {
     // Holding E searches until a catch succeeds; one hold cannot chain catches.
     if(r.eliminated)continue;
     const input=inputFor(r),pressed=input.grab&&!r.grabHeld;if(!input.grab)r.grabHeld=false;
-    if(!pressed||r.grabCooldown>0||r.grabTarget!==null||r.grabbedBy!==null||r.finished||r.eliminated||r.stun>0||r.frozen>0||r.paralyzed>0||r.dive>0||r.y<-.1||input.dive||input.jump)continue;
+    if(!pressed||r.zombie>0||r.grabCooldown>0||r.grabTarget!==null||r.grabbedBy!==null||r.finished||r.eliminated||r.stun>0||r.frozen>0||r.paralyzed>0||r.dive>0||r.y<-.1||input.dive||input.jump)continue;
     const victim=racers.filter(v=>v.id!==r.id&&!v.finished&&!v.eliminated&&v.grabbedBy===null&&v.grabTarget===null&&v.grabImmune<=0&&v.y>=-.1&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p)||a.id-b.id)[0];
     if(!victim){r.grabCooldown=.25;continue;}
     r.grabTarget=victim.id;r.grabTime=0;r.grabHeld=true;victim.grabbedBy=r.id;victim.grabbedTime=0;r.grabs++;
@@ -192,12 +194,14 @@ export function stepRacer(r,input,course,time,dt) {
   if(r.finished||r.eliminated) return;
   r.stun=Math.max(0,r.stun-dt);r.impact=Math.max(0,r.impact-dt);r.dive=Math.max(0,r.dive-dt);r.diveCooldown=Math.max(0,r.diveCooldown-dt);
   const standing=platformAt(course,r.x,r.p,0,time-dt);
-  const speed=8.8*(r.id===0?1:r.skill)*(r.grabbedBy!==null?.42:r.grabTarget!==null?.68:1)*(r.burning>0?.65:1), norm=Math.max(1,Math.hypot(input.x,input.forward));
+  const speed=8.8*(r.id===0?1:r.skill)*(r.grabbedBy!==null?.42:r.grabTarget!==null?.68:1)*(r.burning>0?.65:1)*(r.zombie>0?1.2:1), norm=Math.max(1,Math.hypot(input.x,input.forward));
   const locked=r.frozen>0||r.paralyzed>0;
   if(locked){r.vx*=Math.exp(-dt*4);r.vp*=Math.exp(-dt*4);}
   if(r.stun<=0&&!locked) {
     // Briefly reduce steering after a body impact so input cannot erase its impulse.
-    const lerp=1-Math.exp(-dt*(r.impact>0?3:r.ground?(standing?.kind==='ice'?2.2:14):5));
+    const human=r.id===0&&!input.ai,turning=input.x*r.vx+input.forward*r.vp<-.1;
+    const response=r.impact>0?(human?4.5:3):r.ground?(standing?.kind==='ice'?(human?4.5:2.2):(human?(turning?38:28):14)):(human?10:5);
+    const lerp=1-Math.exp(-dt*response);
     const boost=r.dive>0?1.65:1;
     r.vx+=(input.x/norm*speed*boost-r.vx)*lerp;
     r.vp+=(input.forward/norm*speed*boost-r.vp)*lerp;

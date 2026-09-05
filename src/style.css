@@ -17,3 +17,7 @@
 #gate-status[data-state="eliminated"]{border-color:#ff7aa3;background:#52213ded}#gate-status[data-state="eliminated"] #gate-timer{font-size:20px;color:#ffb1cf}
 #status-panel{top:297px}.leaderboard li.eliminated b{color:#c9336a}.leaderboard li.eliminated.is-you{border-top:1px solid #f69bc1;padding-top:8px}
 #hud.spectating .touch-controls,#hud.spectating .bottom-hud{visibility:hidden}
+.result-actions{width:210px;flex-shrink:0;display:flex;flex-direction:column;gap:10px}.result-actions .play-button{margin-top:0;font-size:15px}.home-button{min-height:44px;border:1px solid #d8cbe6;border-radius:12px;background:#eee7f8;color:#644e81;font-weight:800;font-size:14px}
+#music[aria-pressed="false"],#sound[aria-pressed="false"]{opacity:.65}
+#zombie-warning{position:absolute;left:50%;bottom:132px;transform:translateX(-50%);padding:9px 16px;border:1px solid #b1d671;border-radius:12px;background:#27352aed;color:#e2ffc2;font-size:12px;max-width:440px;text-align:center;pointer-events:none}
+@media(max-width:760px){.result-actions{width:100%}.result-actions .play-button{justify-content:center}.home-button{min-height:48px}}

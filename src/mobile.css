@@ -87,6 +87,16 @@ body.touch-mode .results-panel{max-height:calc(100dvh - var(--safe-top) - var(--
 body.touch-mode #gate-status{top:calc(var(--safe-top) + 190px);left:max(12px,var(--safe-left));right:max(12px,var(--safe-right));width:auto;padding:7px 11px;gap:8px;border-radius:11px}
 body.touch-mode #gate-label{font-size:12px}body.touch-mode #gate-detail{font-size:9px;margin-top:1px}body.touch-mode #gate-timer{font-size:24px}
 body.touch-mode #gate-status[data-state="eliminated"] #gate-timer{font-size:18px}
+body.touch-mode #music,body.touch-mode #sound{width:48px;padding:8px;font-size:21px}body.touch-mode #music span,body.touch-mode #sound span{display:none}body.touch-mode .top-right{gap:6px}
+body.touch-mode .home-button{min-height:48px;touch-action:manipulation}
+body.touch-mode .touch-actions [data-key="KeyE"].infected{background:#657f3a;color:#f0ffd1;border-color:#c4ed8d}
+body.touch-mode #zombie-warning{bottom:calc(var(--safe-bottom) + 205px);max-width:82%;width:max-content;font-size:11px}
+body.touch-mode:has(#zombie-warning:not(.hidden)) #race-hint{visibility:hidden}
+@media(max-width:420px){body.touch-mode .brand{font-size:16px;gap:8px}body.touch-mode .brand-icon{font-size:23px;padding:8px 11px}body.touch-mode .brand small{font-size:8px;letter-spacing:2px}}
+@media(max-width:360px){body.touch-mode .brand>span:last-child{display:none}}
+@media(orientation:portrait) and (max-height:650px){
+  body.touch-mode:has(#status-panel:not(.hidden)) #zombie-warning,body.touch-mode:has(#monster-warning:not(.hidden)) #zombie-warning{visibility:hidden}
+}
 body.touch-mode #monster-warning{top:calc(var(--safe-top) + 255px)}
 body.touch-mode #status-panel{top:calc(var(--safe-top) + 333px)}
 body.touch-mode:has(#monster-warning.hidden) #status-panel{top:calc(var(--safe-top) + 255px)}
@@ -94,6 +104,8 @@ body.touch-mode:has(#monster-warning.hidden) #status-panel{top:calc(var(--safe-t
   body.touch-mode #gate-status{left:50%;right:auto;transform:translateX(-50%);width:48%;max-width:480px}
 }
 @media(orientation:landscape) and (max-height:500px){
+  body.touch-mode .race-top{right:calc(var(--safe-right) + 182px)}
+  body.touch-mode #zombie-warning{bottom:calc(var(--safe-bottom) + 15px);max-width:calc(100% - 350px);font-size:10px;padding:7px 11px}
   body.touch-mode #gate-status{top:calc(var(--safe-top) + 80px);left:50%;right:auto;transform:translateX(-50%);width:48%;max-width:380px;padding:5px 10px}
   body.touch-mode #gate-label{font-size:10px}body.touch-mode #gate-detail{font-size:8px}body.touch-mode #gate-timer{font-size:21px}
   body.touch-mode #gate-status[data-state="eliminated"] #gate-timer{font-size:16px}

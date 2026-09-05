@@ -5,6 +5,9 @@ import {createTouchControls} from './touch-controls.js';
 import { THEMES, COLORS, TERRAIN_NAMES, GRAB, MAP_CATALOG, selectMapIds, generateCourse, platformX, createRacers, resetRacers, botInput, obstaclePose, stepGrabs, stepRacer, resolveRacerCollisions, raceOrder, roundPoints, awardRound, finalOrder, clamp } from './game.js';
 import {stepTimedGates} from './timed-gates.js';
 import {TimedGateView} from './timed-gates-view.js';
+import {GameAudio} from './audio.js';
+import {createZombieDirector,stepZombieEvents,canFinishRace,infectRacer} from './zombie.js';
+import {ZombieView} from './zombie-view.js';
 import {ATTACKS,createMonsterDirector,beginMonsterEvent,eventPhase,insideMonsterAttack,stepMonsterEvents,advanceStatuses,effectiveInput} from './monster.js';
 import {MonsterView,addStatusVisuals,updateStatusVisuals} from './monster-view.js';
 import {coverBoxes,isSheltered,shelterSpots,resetTerrainCollisionHistory} from './cover.js';
@@ -15,11 +18,11 @@ const useTouchLayout=()=>coarsePointer.matches||innerWidth<=760;
 document.body.classList.toggle('touch-mode',useTouchLayout());
 $('#app').innerHTML=`
   <div id="world" aria-label="3D 糖豆競速場"></div><div class="vignette"></div>
-  <header><a class="brand" href="./" aria-label="糖豆衝衝首頁"><span class="brand-icon">S<span>★</span></span><span>SUGAR<span class="brand-light">BEAT</span><small>糖豆衝衝</small></span></a><div class="top-right"><span class="local-badge"><i></i> SOLO + AI</span><button class="icon-button" id="sound" aria-label="開啟音效" title="音效">♫ <span>OFF</span></button><button class="icon-button hidden" id="pause" aria-label="暫停遊戲">Ⅱ</button></div></header>
-  <main id="lobby"><div class="lobby-copy"><div class="eyebrow"><span></span> 36 張極難地圖 · 12 位選手 · 怪獸亂入</div><h1>小糖豆，<br>大<span class="pink-word">暴走<span class="spark">✦</span></span>。</h1><p class="intro">推他一下，拉他一把。<br>躲怪獸、衝限時門，慢一步就淘汰。</p><form id="start-form"><label for="name">選手名稱 <span>PLAYER NAME</span></label><div class="input-wrap"><span>☺</span><input id="name" maxlength="16" autocomplete="nickname" placeholder="幫你的糖豆取個名字" required value="糖豆新星"><span class="input-status">READY</span></div><button class="play-button" type="submit">出發！開始挑戰 <span>↗</span></button></form><div class="controls-guide"><span><kbd>W</kbd><span class="key-row"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>移動</span><span class="control-divider"></span><kbd class="wide">SPACE</kbd><span>跳躍</span><kbd class="wide">SHIFT</kbd><span>前撲</span><kbd>E</kbd><span>抓拉</span></div><p class="lobby-note">左右 Shift 都可前撲／掙脫 · 按住 E + 方向鍵拉人</p><div class="mobile-guide"><span>◉ 左手搖桿移動</span><span>↑ 右手跳躍／前撲／抓拉</span><small>可以同時操作 · 按住抓拉＋搖桿拖人<br>橫放手機，賽道看得更清楚</small></div></div><div class="hero-label"><span class="player-tag">★ THAT'S YOU!</span><span class="hero-caption">軟萌登場，認真開跑。</span></div><div class="round-preview"><span class="preview-label">MONSTER MAYHEM <span>36 張隨機抽 3 張</span></span>${THEMES.map((t,i)=>`<div class="round-card"><span class="round-no">0${i+1}</span><div><strong>${t.name}</strong><small>${['極難起跑','怪獸追擊','地獄決勝'][i]}</small></div><span class="difficulty">${'▰'.repeat(i+1)}${'▱'.repeat(2-i)}</span></div>`).join('')}</div></main>
-  <section id="hud" class="hidden"><div class="race-top"><div class="round-info"><span id="round-label"></span><h2 id="course-name"></h2></div><div class="race-stats"><div><small>即時名次</small><strong id="position">1<em>/12</em></strong></div><div><small>剩餘時間</small><strong id="timer">80<span>s</span></strong></div><div><small>總積分</small><strong id="score">0</strong></div></div></div><div class="race-progress"><div id="progress-fill"></div><span>START</span><span>FINISH ⚑</span></div><div id="gate-status" role="status" aria-live="polite" data-state="open"><div><strong id="gate-label"></strong><small id="gate-detail"></small></div><b id="gate-timer"></b></div><div class="leaderboard"><div class="board-title">LIVE RANKING <i></i></div><ol id="live-list"></ol></div><div id="race-hint"></div><div id="monster-warning" class="hidden" role="status"><strong></strong><span></span></div><div id="status-panel" class="hidden" role="status"><strong id="status-list"></strong><span id="reverse-keys" class="hidden">W ⇄ S · A ⇄ D<br>SPACE ⇄ SHIFT · E 變推開</span></div><div class="bottom-hud"><span><kbd>W A S D</kbd> 移動 <kbd>SPACE</kbd> 跳躍 <kbd>左右 SHIFT</kbd> 前撲 / 掙脫 <kbd>E</kbd> 抓拉 <kbd>ESC</kbd> 暫停</span><div class="ability-meters"><div class="dive-status" id="grab-status"><span id="grab-label">E 抓拉就緒</span><div><i id="grab-meter"></i></div></div><div class="dive-status"><span id="dive-label">前撲就緒</span><div><i id="dive-meter"></i></div></div></div></div><div class="touch-controls" aria-label="手機遊戲控制"><div class="stick-wrap"><div id="touch-stick" role="group" aria-label="移動搖桿，向任意方向拖曳"><span class="stick-arrow north">▲</span><span class="stick-arrow south">▼</span><span class="stick-arrow west">◀</span><span class="stick-arrow east">▶</span><span class="stick-thumb"></span></div><small>拖動移動</small></div><div class="touch-actions"><button data-key="KeyE" aria-label="按住抓拉"><b>✋</b><span data-label>抓拉</span><small data-note>按住拖人</small><span class="touch-meter"><i></i></span></button><button data-key="ShiftLeft" aria-label="前撲或掙脫"><b>↗</b><span data-label>前撲</span><small data-note>也能掙脫</small><span class="touch-meter"><i></i></span></button><button data-key="Space" aria-label="跳躍"><b>↑</b><span data-label>跳躍</span><small data-note>放開再跳</small></button></div></div></section>
+  <header><a class="brand" href="./" aria-label="糖豆衝衝首頁"><span class="brand-icon">S<span>★</span></span><span>SUGAR<span class="brand-light">BEAT</span><small>糖豆衝衝</small></span></a><div class="top-right"><span class="local-badge"><i></i> SOLO + AI</span><button class="icon-button" id="music" aria-label="關閉音樂" aria-pressed="true" title="背景音樂">♫ <span>ON</span></button><button class="icon-button" id="sound" aria-label="關閉音效" aria-pressed="true" title="音效">🔊 <span>ON</span></button><button class="icon-button hidden" id="pause" aria-label="暫停遊戲">Ⅱ</button></div></header>
+  <main id="lobby"><div class="lobby-copy"><div class="eyebrow"><span></span> 36 張極難地圖 · 12 位選手 · 怪獸亂入</div><h1>小糖豆，<br>大<span class="pink-word">暴走<span class="spark">✦</span></span>。</h1><p class="intro">推他一下，拉他一把。<br>躲怪獸、衝限時門，小心被咬成殭屍。</p><form id="start-form"><label for="name">選手名稱 <span>PLAYER NAME</span></label><div class="input-wrap"><span>☺</span><input id="name" maxlength="16" autocomplete="nickname" placeholder="幫你的糖豆取個名字" required value="糖豆新星"><span class="input-status">READY</span></div><button class="play-button" type="submit">出發！開始挑戰 <span>↗</span></button></form><div class="controls-guide"><span><kbd>W</kbd><span class="key-row"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>移動</span><span class="control-divider"></span><kbd class="wide">SPACE</kbd><span>跳躍</span><kbd class="wide">SHIFT</kbd><span>前撲</span><kbd>E</kbd><span>抓拉</span></div><p class="lobby-note">左右 Shift 都可前撲／掙脫 · 按住 E + 方向鍵拉人</p><div class="mobile-guide"><span>◉ 左手搖桿移動</span><span>↑ 右手跳躍／前撲／抓拉</span><small>可以同時操作 · 按住抓拉＋搖桿拖人<br>橫放手機，賽道看得更清楚</small></div></div><div class="hero-label"><span class="player-tag">★ THAT'S YOU!</span><span class="hero-caption">軟萌登場，認真開跑。</span></div><div class="round-preview"><span class="preview-label">MONSTER MAYHEM <span>36 張隨機抽 3 張</span></span>${THEMES.map((t,i)=>`<div class="round-card"><span class="round-no">0${i+1}</span><div><strong>${t.name}</strong><small>${['極難起跑','怪獸追擊','地獄決勝'][i]}</small></div><span class="difficulty">${'▰'.repeat(i+1)}${'▱'.repeat(2-i)}</span></div>`).join('')}</div></main>
+  <section id="hud" class="hidden"><div class="race-top"><div class="round-info"><span id="round-label"></span><h2 id="course-name"></h2></div><div class="race-stats"><div><small>即時名次</small><strong id="position">1<em>/12</em></strong></div><div><small>剩餘時間</small><strong id="timer">80<span>s</span></strong></div><div><small>總積分</small><strong id="score">0</strong></div></div></div><div class="race-progress"><div id="progress-fill"></div><span>START</span><span>FINISH ⚑</span></div><div id="gate-status" role="status" aria-live="polite" data-state="open"><div><strong id="gate-label"></strong><small id="gate-detail"></small></div><b id="gate-timer"></b></div><div class="leaderboard"><div class="board-title">LIVE RANKING <i></i></div><ol id="live-list"></ol></div><div id="race-hint"></div><div id="zombie-warning" class="hidden" role="status"></div><div id="monster-warning" class="hidden" role="status"><strong></strong><span></span></div><div id="status-panel" class="hidden" role="status"><strong id="status-list"></strong><span id="reverse-keys" class="hidden">W ⇄ S · A ⇄ D<br>SPACE ⇄ SHIFT · E 變推開</span></div><div class="bottom-hud"><span><kbd>W A S D</kbd> 移動 <kbd>SPACE</kbd> 跳躍 <kbd>左右 SHIFT</kbd> 前撲 / 掙脫 <kbd>E</kbd> 抓拉 <kbd>ESC</kbd> 暫停</span><div class="ability-meters"><div class="dive-status" id="grab-status"><span id="grab-label">E 抓拉就緒</span><div><i id="grab-meter"></i></div></div><div class="dive-status"><span id="dive-label">前撲就緒</span><div><i id="dive-meter"></i></div></div></div></div><div class="touch-controls" aria-label="手機遊戲控制"><div class="stick-wrap"><div id="touch-stick" role="group" aria-label="移動搖桿，向任意方向拖曳"><span class="stick-arrow north">▲</span><span class="stick-arrow south">▼</span><span class="stick-arrow west">◀</span><span class="stick-arrow east">▶</span><span class="stick-thumb"></span></div><small>拖動移動</small></div><div class="touch-actions"><button data-key="KeyE" aria-label="按住抓拉"><b>✋</b><span data-label>抓拉</span><small data-note>按住拖人</small><span class="touch-meter"><i></i></span></button><button data-key="ShiftLeft" aria-label="前撲或掙脫"><b>↗</b><span data-label>前撲</span><small data-note>也能掙脫</small><span class="touch-meter"><i></i></span></button><button data-key="Space" aria-label="跳躍"><b>↑</b><span data-label>跳躍</span><small data-note>放開再跳</small></button></div></div></section>
   <div id="countdown" class="hidden" aria-live="assertive"></div><div id="toast" class="hidden" role="status"></div>
-  <section id="results" class="overlay hidden" aria-labelledby="result-title"><div class="results-panel"><div class="eyebrow" id="result-eyebrow"></div><h2 id="result-title"></h2><p id="result-subtitle"></p><div id="podium"></div><div class="table-scroll"><table><thead id="result-head"></thead><tbody id="result-body"></tbody></table></div><div class="result-footer"><span id="score-rule"></span><button class="play-button" id="next">下一關 →</button></div></div></section>
+  <section id="results" class="overlay hidden" aria-labelledby="result-title"><div class="results-panel"><div class="eyebrow" id="result-eyebrow"></div><h2 id="result-title"></h2><p id="result-subtitle"></p><div id="podium"></div><div class="table-scroll"><table><thead id="result-head"></thead><tbody id="result-body"></tbody></table></div><div class="result-footer"><span id="score-rule"></span><div class="result-actions"><button class="play-button" id="next">下一關 →</button><button class="home-button hidden" id="home">⌂ 回到首頁</button></div></div></div></section>
   <section id="pause-panel" class="overlay hidden"><div class="pause-card"><span class="eyebrow">TAKE A BREATHER</span><h2>糖豆休息中</h2><p>計時與 AI 都已暫停。</p><button id="resume" class="play-button">繼續挑戰 →</button><button id="exit" class="secondary-button">離開本輪，回到起點</button></div></section>
   <div id="error" class="overlay hidden"><div class="pause-card"><h2>3D 畫面未能啟動</h2><p>請使用支援 WebGL 的瀏覽器，並開啟硬體加速後重新整理。</p></div></div>
 `;
@@ -32,6 +35,7 @@ renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFi
 $('#world').append(renderer.domElement);
 const scene=new THREE.Scene();scene.fog=new THREE.Fog(0xbceefe,50,160);
 const monsterView=new MonsterView(scene);
+const zombieView=new ZombieView(scene);
 const gateView=new TimedGateView();
 const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,250);
 scene.add(new THREE.HemisphereLight(0xffffff,0x7181b8,2.6));
@@ -53,9 +57,9 @@ function bean(color) {
   const coloredMeshes=[];body.traverse(m=>{if(m.isMesh&&m.material.color.getHex()===color){m.userData.cleanMaterial=m.material;coloredMeshes.push(m);}});
   g.userData={body,left,right,feet,face,coloredMeshes};addStatusVisuals(g);return g;
 }
-function clearGroup(g) {g.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.userData.status){const {ice,halo,smoke}=o.userData.status;ice.material.dispose();halo.material.dispose();smoke.children.forEach(m=>m.material.dispose());}});g.clear();}
+function clearGroup(g) {g.traverse(o=>{if(o.geometry)o.geometry.dispose();o.userData.status?.dispose();});g.clear();}
 let obstacleMeshes=[],platformMeshes=[],racerMeshes=[],grabLines=[],course,racers=[],round=0,seed=0,state='lobby',previousState='',elapsed=0,countTime=3.4,simulationTime=0,accumulator=0,finishCount=0,toastTimer=0,lastRespawns=0,director=null;
-const keys=new Set();let muted=true,audio;
+const keys=new Set(),audio=new GameAudio();let zombies=null,audioEventId=0,audioAttackId=0;
 const touchControls=createTouchControls({stick:$('#touch-stick'),buttons:document.querySelectorAll('.touch-actions [data-key]'),isEnabled:()=>(state==='race'||state==='countdown')&&!racers[0]?.eliminated});
 function clearInputs(){keys.clear();touchControls.reset();}
 function readPlayerInput(){
@@ -63,8 +67,15 @@ function readPlayerInput(){
   const touch=touchControls.read();
   return {x:clamp(touch.x+Number(keys.has('KeyD'))-Number(keys.has('KeyA')),-1,1),forward:clamp(touch.forward+Number(keys.has('KeyW'))-Number(keys.has('KeyS')),-1,1),jump:touch.jump||keys.has('Space'),dive:touch.dive||keys.has('ShiftLeft')||keys.has('ShiftRight'),grab:touch.grab||keys.has('KeyE')};
 }
-function beep(freq=550,duration=.09) {if(muted)return;try {audio??=new (window.AudioContext||window.webkitAudioContext)();audio.resume();const osc=audio.createOscillator(),gain=audio.createGain();osc.type='sine';osc.frequency.value=freq;gain.gain.setValueAtTime(.07,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+duration);}catch{}}
-function toast(text) {$('#toast').textContent=useTouchLayout()?text.replaceAll('按 Shift','點「前撲」').replaceAll('按住 E + 方向鍵','按住「抓拉」＋拖動搖桿'):text;$('#toast').classList.remove('hidden');toastTimer=3;}
+function updateAudioButtons(){
+  const status=audio.getDiagnostics();
+  for(const [selector,enabled,label] of [['#sound',status.sfxEnabled,'音效'],['#music',status.musicEnabled,'音樂']]){
+    const button=$(selector);button.querySelector('span').textContent=enabled?'ON':'OFF';button.setAttribute('aria-pressed',String(enabled));button.setAttribute('aria-label',`${enabled?'關閉':'開啟'}${label}`);
+  }
+  $('#music').title=`背景音樂 · ${status.profile?.name??status.profile??'糖豆衝衝'}`;
+  try{localStorage.setItem('sugar-beat-audio',JSON.stringify({music:status.musicEnabled,sfx:status.sfxEnabled}));}catch{}
+}
+function toast(text) {$('#toast').textContent=useTouchLayout()?text.replaceAll('按 Shift','點「前撲」').replaceAll('按住 E + 方向鍵','按住「抓拉」＋拖動搖桿').replaceAll('按住 E 咬人','按住「咬人」'):text;$('#toast').classList.remove('hidden');toastTimer=3;}
 function buildCourse(c) {
   gateView.clear();clearGroup(courseGroup);obstacleMeshes=[];platformMeshes=[];
   const theme=THEMES[c.round];scene.fog.color.setHex(theme.sky);renderer.setClearColor(theme.sky);
@@ -153,15 +164,23 @@ function lobbyScene() {
 function startRound() {
   course=generateCourse(seed,round);resetRacers(racers);buildCourse(course);buildRacers();elapsed=0;simulationTime=0;accumulator=0;finishCount=0;countTime=3.4;lastRespawns=0;clearInputs();state='countdown';
   director=createMonsterDirector(seed^course.map.id,round);director.nextAt+=countTime;
+  zombies=createZombieDirector(seed^course.map.id,round);zombies.nextAt+=countTime;audioEventId=0;audioAttackId=0;
+  audio.setPaused(false);audio.setScene('race',course.map.id);updateAudioButtons();
   $('#lobby').classList.add('hidden');$('#results').classList.add('hidden');$('#hud').classList.remove('hidden');$('#pause').classList.remove('hidden');$('#countdown').classList.remove('hidden');
   $('#toast').classList.add('hidden');toastTimer=0;
   $('#round-label').textContent=`ROUND 0${round+1} / 03 · MAP ${String(course.map.id).padStart(2,'0')} / 36 · 極難`;$('#course-name').textContent=course.map.name;$('#race-hint').textContent=THEMES[round].hint;
   camera.position.set(0,11,17);camera.lookAt(0,0,-8);updateHUD();
 }
-function startGame() {$('#name').blur();const name=$('#name').value.trim()||'糖豆新星';$('#name').value=name;try{localStorage.setItem('sugar-beat-name',name);}catch{}seed=crypto.getRandomValues(new Uint32Array(1))[0];racers=createRacers(name,seed);round=0;startRound();beep();}
-function togglePause() {if(state==='race'||state==='countdown') {previousState=state;state='paused';clearInputs();$('#pause-panel').classList.remove('hidden');}else if(state==='paused') {state=previousState;$('#pause-panel').classList.add('hidden');clearInputs();}}
+function startGame() {void audio.unlock();$('#name').blur();const name=$('#name').value.trim()||'糖豆新星';$('#name').value=name;try{localStorage.setItem('sugar-beat-name',name);}catch{}seed=crypto.getRandomValues(new Uint32Array(1))[0];racers=createRacers(name,seed);round=0;startRound();audio.play('start');}
+function togglePause() {if(state==='race'||state==='countdown') {previousState=state;state='paused';clearInputs();audio.setPaused(true);$('#pause-panel').classList.remove('hidden');}else if(state==='paused') {state=previousState;$('#pause-panel').classList.add('hidden');clearInputs();audio.setPaused(false);void audio.unlock();}}
+function returnHome(){
+  state='lobby';clearInputs();director=null;zombies=null;elapsed=0;toastTimer=0;accumulator=0;
+  for(const selector of ['#pause-panel','#results','#hud','#countdown','#pause','#toast'])$(selector).classList.add('hidden');
+  $('#lobby').classList.remove('hidden');lobbyScene();audio.setPaused(false);audio.setScene('lobby');updateAudioButtons();$('#name').focus();
+}
 function showResults() {
   state='results';clearInputs();$('#hud').classList.add('hidden');$('#pause').classList.add('hidden');$('#countdown').classList.add('hidden');
+  $('#toast').classList.add('hidden');toastTimer=0;audio.setScene('results',course.map.id);
   const order=awardRound(racers,round,THEMES[round].time),isFinal=round===2,ranking=isFinal?finalOrder(racers):order,mine=racers[0].results[round];
   $('#results').classList.remove('hidden');$('#result-eyebrow').textContent=isFinal?'THE GRAND FINALE · 最終成績':`ROUND 0${round+1} COMPLETE`;
   $('#result-title').textContent=isFinal?`你的最終排名：第 ${ranking.findIndex(r=>r.id===0)+1} 名`:(mine.finished?`漂亮！第 ${mine.place} 名抵達`:mine.eliminated?`限時門淘汰 · 本關第 ${mine.place} 名`:'時間到！準備下一次衝刺');
@@ -177,15 +196,17 @@ function showResults() {
     values.forEach(v=>{const cell=document.createElement('td');cell.textContent=v;tr.append(cell);});$('#result-body').append(tr);
   });
   $('#score-rule').textContent=isFinal?'淘汰／未完賽得分減半，該關用時以時限計算。同分以三關總用時較短者優先。':`名次基分 120–10 × ${1+round*.5} 倍。淘汰時鎖定名次；同時淘汰依進度排名。未完賽得分減半，下一關全員重新上場。`;
-  $('#next').textContent=isFinal?'再玩一輪 ↻':'前往下一關 →';$('#next').focus();beep(isFinal?880:660,.25);
+  $('#next').textContent=isFinal?'再玩一輪 ↻':'前往下一關 →';$('#home').classList.toggle('hidden',!isFinal);$('#next').focus();audio.play('result');
 }
 function updateHUD() {
   const order=raceOrder(racers),me=racers[0];$('#position').innerHTML=`${order.findIndex(r=>r.id===0)+1}<em>/12</em>`;$('#timer').innerHTML=`${Math.max(0,Math.ceil(THEMES[round].time-elapsed))}<span>s</span>`;$('#score').textContent=me.points;
+  $('#round-label').textContent=useTouchLayout()?`R${round+1}/3 · MAP ${course.map.id}/36`:`ROUND 0${round+1} / 03 · MAP ${String(course.map.id).padStart(2,'0')} / 36 · 極難`;
   const nextGate=course.gates[me.gatePasses],gateStatus=$('#gate-status'),remaining=nextGate?Math.max(0,Math.ceil(nextGate.deadline-elapsed)):0;
   gateStatus.dataset.state=me.eliminated?'eliminated':me.finished||!nextGate?'passed':remaining<=10?'urgent':'open';
   $('#gate-label').textContent=me.eliminated?`本關淘汰 · 第 ${me.eliminationPlace} 名`:me.finished?'已抵達終點':nextGate?`限時門 ${nextGate.id} / ${course.gates.length}`:'三道門全過 · 衝刺終點';
   $('#gate-timer').textContent=me.eliminated?`+${roundPoints(me.eliminationPlace,round,false)} 分`:me.finished||!nextGate?'⚑':`${remaining}s`;
   $('#gate-detail').textContent=me.eliminated?`門 ${me.eliminationGate} 超時 · 觀戰中${round<2?'，下一關重新上場':'，等待最終積分'}`:me.finished?'等待其他選手完成比賽':nextGate?`${state==='countdown'?'GO 後開始計時':`前方 ${Math.max(0,Math.ceil(nextGate.p-me.p))}m`} · 歸零未通過即淘汰`:'最後一段路，還沒到終點別鬆懈！';
+  if(me.zombie>0&&!me.eliminated)$('#gate-detail').textContent=`感染中不能通關 · ${me.zombie.toFixed(1)}s 後解除 · 關門倒數繼續`;
   $('.race-stats>div:first-child small').textContent=me.eliminated?'淘汰名次':'即時名次';
   $('#hud').classList.toggle('spectating',me.eliminated);
   $('#progress-fill').style.width=`${clamp(me.p/course.length*100,0,100)}%`;$('#dive-meter').style.width=`${(1-me.diveCooldown/1.15)*100}%`;$('#dive-label').textContent=me.diveCooldown>0?'前撲恢復中':'前撲就緒';
@@ -204,6 +225,7 @@ function updateHUD() {
     warn.querySelector('span').textContent=sheltered?'威化牆已擋住攻擊 · 留在綠色區域、別跳起露身':phase==='warning'?`${ATTACKS[event.type].warning} · ${Math.max(0,event.attackAt-simulationTime).toFixed(1)}s`:'躲到威化牆背面的綠色區域，或離開攻擊範圍！';
   }
   const statuses=[];
+  if(me.zombie>0)statuses.push(`殭屍 ${me.zombie.toFixed(1)}s · 速度 ×1.2 · 不能通關`);
   if(me.charred>0)statuses.push(`燒焦 ${me.charred.toFixed(1)}s${me.burning>0?' · 移動減速':''}`);
   if(me.soaked>0)statuses.push(`水砲衝擊 ${me.soaked.toFixed(1)}s`);
   if(me.frozen>0)statuses.push(`冰凍 ${me.frozen.toFixed(1)}s · 無法操作`);
@@ -211,48 +233,65 @@ function updateHUD() {
   if(me.reversed>0)statuses.push(`操作反轉 ${me.reversed.toFixed(1)}s`);
   $('#status-panel').classList.toggle('hidden',me.eliminated||!statuses.length);$('#status-list').textContent=statuses.join(' / ');$('#reverse-keys').classList.toggle('hidden',me.reversed<=0);
   if(me.reversed>0){$('#grab-label').textContent=me.grabCooldown>0?'反轉推開 · 冷卻中':'E 現在是推開';$('#dive-label').textContent='SPACE 後撲 / SHIFT 跳';}
+  if(me.zombie>0){$('#grab-label').textContent=me.biteCooldown>0?`咬人冷卻 ${me.biteCooldown.toFixed(1)}s`:'E 咬人 · 可以傳染對手';$('#grab-meter').style.width=`${clamp(1-me.biteCooldown/1.1,0,1)*100}%`;}
   if(useTouchLayout()){
     $('#race-hint').textContent=$('#race-hint').textContent.replaceAll('按 Shift','點「前撲」').replaceAll('按住 E','按住「抓拉」');
     $('#reverse-keys').innerHTML='搖桿方向相反<br>跳躍 ⇄ 前撲 · 抓拉變推開';
   }else $('#reverse-keys').innerHTML='W ⇄ S · A ⇄ D<br>SPACE ⇄ SHIFT · E 變推開';
+  if(me.zombie>0)$('#reverse-keys').innerHTML=useTouchLayout()?'搖桿方向相反<br>跳躍 ⇄ 前撲 · 咬人仍可用':'W ⇄ S · A ⇄ D<br>SPACE ⇄ SHIFT · E 咬人';
   const reversed=me.reversed>0,locked=me.eliminated||me.frozen>0||me.paralyzed>0;
   const touchLabels={KeyE:[reversed?'推開':'抓拉',me.grabTarget!==null?'拉走他！':me.grabCooldown>0?`${me.grabCooldown.toFixed(1)}s 冷卻`:reversed?'點一下推開':'按住拖人'],ShiftLeft:[reversed?'跳躍':'前撲',reversed?'放開再跳':me.diveCooldown>0?`${me.diveCooldown.toFixed(1)}s 冷卻`:me.grabbedBy!==null?'點我掙脫':'也能掙脫'],Space:[reversed?'後撲':'跳躍',reversed?me.diveCooldown>0?`${me.diveCooldown.toFixed(1)}s 冷卻`:'反向撲出去':'放開再跳']};
+  if(me.zombie>0)touchLabels.KeyE=['咬人',me.biteCooldown>0?`${me.biteCooldown.toFixed(1)}s 冷卻`:'按住傳染'];
+  $('.touch-actions [data-key="KeyE"] b').textContent=me.zombie>0?'☠':'✋';
+  $('.touch-actions [data-key="KeyE"]').classList.toggle('infected',me.zombie>0);
   for(const button of document.querySelectorAll('.touch-actions [data-key]')){
     const [label,note]=touchLabels[button.dataset.key];button.querySelector('[data-label]').textContent=label;button.querySelector('[data-note]').textContent=locked?'暫時無法操作':note;button.classList.toggle('locked',locked);button.setAttribute('aria-label',label==='抓拉'?'按住抓拉':label==='前撲'?'前撲或掙脫':label);
     const meter=button.querySelector('.touch-meter i');if(meter)meter.style.width=button.dataset.key==='KeyE'?$('#grab-meter').style.width:reversed?'100%':$('#dive-meter').style.width;
   }
   const leaders=order.slice(0,5);if(me.eliminated&&!leaders.includes(me))leaders.push(me);
   $('#live-list').replaceChildren();leaders.forEach(r=>{const li=document.createElement('li');li.className=r.id===0?'is-you':'';li.classList.toggle('eliminated',r.eliminated);const n=document.createElement('span');n.textContent=`${order.indexOf(r)+1}  ${r.name}`;const p=document.createElement('b');p.textContent=r.eliminated?'淘汰':r.finished?'⚑':`${Math.round(clamp(r.p/course.length*100,0,100))}%`;li.append(n,p);$('#live-list').append(li);});
+  const nearZombie=zombies?.zombies.some(z=>Math.hypot(z.x-me.x,z.p-me.p)<20),infected=racers.filter(r=>r.zombie>0&&!r.eliminated&&!r.finished).length;
+  const zombieWarning=$('#zombie-warning');zombieWarning.classList.toggle('hidden',me.eliminated||(!nearZombie&&!infected));
+  zombieWarning.textContent=me.zombie>0?`${useTouchLayout()?'按住「咬人」':'按住 E 咬人'}傳染對手 · 再被咬會重算 10 秒`:nearZombie?'☠ 殭屍出沒！繞開牆角，別被咬到':`☠ ${infected} 位選手已感染 · 保持距離`;
 }
 function tick(dt) {
   simulationTime+=dt;
-  if(state==='countdown') {const old=Math.ceil(countTime);countTime-=dt;$('#countdown').textContent=countTime>.4?Math.ceil(countTime-.4):'GO!';if(Math.ceil(countTime)!==old)beep(400+(4-Math.ceil(countTime))*120);if(countTime<=0){state='race';$('#countdown').classList.add('hidden');}return;}
+  if(state==='countdown') {const old=Math.ceil(countTime);countTime-=dt;$('#countdown').textContent=countTime>.4?Math.ceil(countTime-.4):'GO!';if(Math.ceil(countTime)!==old)audio.play('countdown');if(countTime<=0){state='race';$('#countdown').classList.add('hidden');audio.play('start');}return;}
   if(state!=='race')return;
   elapsed+=dt;
   const previousPositions=new Map(racers.map(r=>[r.id,{x:r.x,p:r.p,y:r.y,respawns:r.respawns}])),previousPasses=racers[0].gatePasses;
+  const wasZombie=racers[0].zombie>0;
   for(const r of racers)advanceStatuses(r,dt);
+  if(wasZombie&&racers[0].zombie<=0&&!racers[0].eliminated){audio.play('cure');toast('感染解除！現在可以通過限時門與終點');}
   const previousHits=racers[0].monsterHits;
   stepMonsterEvents(director,course,racers,simulationTime,dt);
-  if(racers[0].monsterHits>previousHits)beep(racers[0].lastMonsterHit==='lightning'?110:200,.22);
+  if(director.event){const event=director.event;if(event.id!==audioEventId){audioEventId=event.id;audio.play(`${event.type}-spawn`);}if(eventPhase(event,simulationTime)==='attack'&&event.id!==audioAttackId){audioAttackId=event.id;audio.play(`${event.type}-attack`);}}
+  if(racers[0].monsterHits>previousHits)audio.play('impact');
   const inputs=new Map(racers.map(r=>[r.id,effectiveInput(r,r.id===0?readPlayerInput():botInput(r,course,simulationTime,racers,director.event))]));
-  const wasGrabbed=racers[0].grabbedBy,previousGrabs=racers[0].grabs;
+  const wasGrabbed=racers[0].grabbedBy,previousGrabs=racers[0].grabs,previousEscapes=racers[0].escapes;
   stepGrabs(racers,inputs,dt);
-  if(racers[0].grabbedBy!==null&&wasGrabbed===null){toast('喂！有人拉你！按 Shift 掙脫');beep(180,.15);}
-  if(racers[0].grabs>previousGrabs){toast('抓到了！按住 E + 方向鍵拖走對手');beep(650,.1);}
+  if(racers[0].grabbedBy!==null&&wasGrabbed===null){toast('喂！有人拉你！按 Shift 掙脫');audio.play('grab');}
+  if(racers[0].grabs>previousGrabs){toast('抓到了！按住 E + 方向鍵拖走對手');audio.play('grab');}
+  if(racers[0].escapes>previousEscapes)audio.play('escape');
   for(const r of racers) {
     const input=inputs.get(r.id);
-    const wasGround=r.ground;stepRacer(r,input,course,simulationTime,dt);if(r.id===0&&wasGround&&!r.ground&&input.jump)beep(490,.06);
+    const wasGround=r.ground,previousDive=r.diveCooldown;stepRacer(r,input,course,simulationTime,dt);if(r.id===0){if(wasGround&&!r.ground&&input.jump)audio.play('jump');if(r.diveCooldown>previousDive)audio.play('dive');}
   }
   const previousImpact=racers[0].impact;
   resolveRacerCollisions(racers,course,simulationTime);
-  if(previousImpact<=0&&racers[0].impact>0)beep(240,.07);
+  if(previousImpact<=0&&racers[0].impact>0)audio.play('impact');
+  const previousInfections=racers[0].zombieInfections;
+  const zombieEvents=stepZombieEvents(zombies,course,racers,simulationTime,dt,inputs);
+  if(zombieEvents.spawned.length)audio.play('zombie-spawn');
+  if(zombieEvents.bites.length)audio.play('zombie-bite');
+  if(racers[0].zombieInfections>previousInfections){audio.play('infect');toast('被咬了！殭屍 10 秒、速度 ×1.2；按住 E 咬人，感染中不能通關');}
   const eliminated=stepTimedGates(racers,course,elapsed,simulationTime,dt,previousPositions);
-  if(eliminated.includes(racers[0])){clearInputs();toast(`門 ${racers[0].eliminationGate} 超時！本關第 ${racers[0].eliminationPlace} 名，進入觀戰`);beep(130,.3);updateHUD();}
-  else if(racers[0].gatePasses>previousPasses){toast(`限時門 ${racers[0].gatePasses} 通過！${racers[0].gatePasses===course.gates.length?'衝向終點！':'快去下一道門'}`);beep(760,.13);}
+  if(eliminated.includes(racers[0])){clearInputs();toast(`門 ${racers[0].eliminationGate} 超時！本關第 ${racers[0].eliminationPlace} 名，進入觀戰`);audio.play('eliminate');updateHUD();}
+  else if(racers[0].gatePasses>previousPasses){toast(`限時門 ${racers[0].gatePasses} 通過！${racers[0].gatePasses===course.gates.length?'衝向終點！':'快去下一道門'}`);audio.play('gate-pass');}
   for(const r of racers) {
-    if(!r.finished&&!r.eliminated&&r.gatePasses===course.gates.length&&r.p>=course.length&&r.y>=-.1&&platformAtFinish(r)) {r.finished=true;r.finishTime=elapsed;r.place=++finishCount;if(r.id===0){toast(`第 ${r.place} 名完賽！等待其他選手抵達…`);beep(880,.2);}}
+    if(canFinishRace(r)&&r.gatePasses===course.gates.length&&r.p>=course.length&&r.y>=-.1&&platformAtFinish(r)) {r.finished=true;r.finishTime=elapsed;r.place=++finishCount;if(r.id===0){toast(`第 ${r.place} 名完賽！等待其他選手抵達…`);audio.play('finish');}}
   }
-  if(racers[0].respawns>lastRespawns){lastRespawns=racers[0].respawns;toast('噗通！已回到最近的檢查點');beep(180,.16);}
+  if(racers[0].respawns>lastRespawns){lastRespawns=racers[0].respawns;toast('噗通！已回到最近的重生點');audio.play('fall');}
   if(racers.every(r=>r.finished||r.eliminated)||elapsed>=THEMES[round].time)showResults();
 }
 function platformAtFinish(r) {const p=course.platforms.at(-1);return Math.abs(r.x-p.x)<p.width/2;}
@@ -263,6 +302,7 @@ function animate(now) {
     if(state==='race'||state==='countdown'){accumulator+=dt;while(accumulator>=1/60){tick(1/60);accumulator-=1/60;}}
     else simulationTime+=dt;
     monsterView.update(director?.event,simulationTime,state==='race',course);
+    zombieView.update(zombies?.zombies??[],simulationTime,state==='race');
     gateView.update(state==='lobby'?0:elapsed,racers[0]);
     platformMeshes.forEach(({p,g})=>{g.position.x=platformX(p,simulationTime)-p.x;if(g.userData.stripes)g.userData.stripes.position.z=(simulationTime*-p.beltP)%1.25;});
     obstacleMeshes.forEach(({ob,g})=>{
@@ -277,37 +317,45 @@ function animate(now) {
       g.visible=!r.eliminated;
       g.position.set(r.x,r.y+bob,-r.p);
       if(state==='lobby'){g.rotation.y=Math.PI-.35;data.body.rotation.z=Math.sin(now*.0018+i)*.07;g.position.y+=Math.sin(now*.002+i)*.1;}
-      else {if(run>.2&&!r.finished)g.rotation.y=THREE.MathUtils.lerp(g.rotation.y,Math.atan2(-r.vx,r.vp),.18);data.body.rotation.x=r.dive>0?-1.2:0;data.body.rotation.z=r.paralyzed>0?Math.sin(now*.12)*.22:r.stun>0?Math.sin(now*.04)*.3:r.impact>0?Math.sin(now*.045)*.2:0;}
+      else {if(run>.2&&!r.finished){const angle=Math.atan2(-r.vx,r.vp)-g.rotation.y;g.rotation.y+=Math.atan2(Math.sin(angle),Math.cos(angle))*(1-Math.exp(-dt*20));}data.body.rotation.x=r.dive>0?-1.2:0;data.body.rotation.z=r.paralyzed>0?Math.sin(now*.12)*.22:r.stun>0?Math.sin(now*.04)*.3:r.impact>0?Math.sin(now*.045)*.2:0;}
       updateStatusVisuals(g,r,simulationTime,mat(0x332d36));
-      data.feet.forEach((f,j)=>f.position.z=-.1+Math.sin(now*.018+j*Math.PI)*Math.min(run*.035,.26));data.left.rotation.x=r.grabTarget!==null?-1.35:Math.sin(now*.017)*run*.055;data.right.rotation.x=r.grabTarget!==null?-1.35:-data.left.rotation.x;
+      data.feet.forEach((f,j)=>f.position.z=-.1+Math.sin(now*.018+j*Math.PI)*Math.min(run*.035,.26));data.left.rotation.x=r.zombie>0||r.grabTarget!==null?-1.35:Math.sin(now*.017)*run*.055;data.right.rotation.x=r.zombie>0||r.grabTarget!==null?-1.35:-data.left.rotation.x;
       const victim=r.grabTarget!==null?racers.find(v=>v.id===r.grabTarget):null,line=grabLines[i];line.visible=!!victim&&!r.eliminated&&!victim.eliminated&&state==='race';
       if(victim){const start=new THREE.Vector3(r.x,r.y+2.15,-r.p),end=new THREE.Vector3(victim.x,victim.y+2.15,-victim.p),delta=end.clone().sub(start);line.position.copy(start.add(end).multiplyScalar(.5));line.scale.y=delta.length();line.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize());}
       if(data.marker)data.marker.position.y=2.65+Math.sin(now*.004)*.13;
     });
-    if(state==='race'||state==='countdown'||state==='results') {const me=racers[0].eliminated?(raceOrder(racers).find(r=>!r.finished&&!r.eliminated)??raceOrder(racers)[0]):racers[0],cp=clamp(me.p,-5,course.length),target=new THREE.Vector3(me.x*.6,Math.max(0,me.y)*.35+10.5,-cp+15);camera.position.lerp(target,1-Math.exp(-dt*5));camera.lookAt(me.x*.55,1,-cp-9);sun.position.set(me.x-15,30,-cp+14);sun.target.position.set(me.x,0,-cp-8);}
+    if(state==='race'||state==='countdown'||state==='results') {const me=racers[0].eliminated?(raceOrder(racers).find(r=>!r.finished&&!r.eliminated)??raceOrder(racers)[0]):racers[0],cp=clamp(me.p,-5,course.length),target=new THREE.Vector3(me.x*.6,Math.max(0,me.y)*.35+10.5,-cp+15);camera.position.lerp(target,1-Math.exp(-dt*7));camera.lookAt(me.x*.55,1,-cp-9);sun.position.set(me.x-15,30,-cp+14);sun.target.position.set(me.x,0,-cp-8);}
     else if(state==='lobby'){camera.position.set(innerWidth<760?18:15,14.5,24);camera.lookAt(innerWidth<760?-1:-6,1,-5);}
   }
   if(toastTimer>0&&state!=='paused'){toastTimer-=dt;if(toastTimer<=0)$('#toast').classList.add('hidden');}
   hudTime+=dt;if(hudTime>.12&&(state==='race'||state==='countdown')){updateHUD();hudTime=0;}
+  audio.update();
   renderer.render(scene,camera);
 }
 $('#start-form').addEventListener('submit',e=>{e.preventDefault();startGame();});
 $('#next').onclick=()=>{if(round===2){startGame();}else{round++;startRound();}};
 $('#pause').onclick=togglePause;$('#resume').onclick=togglePause;
-$('#exit').onclick=()=>{state='lobby';clearInputs();$('#pause-panel').classList.add('hidden');$('#hud').classList.add('hidden');$('#countdown').classList.add('hidden');$('#pause').classList.add('hidden');$('#lobby').classList.remove('hidden');lobbyScene();};
-$('#sound').onclick=()=>{muted=!muted;$('#sound span').textContent=muted?'OFF':'ON';$('#sound').setAttribute('aria-label',muted?'開啟音效':'關閉音效');beep();};
+$('#exit').onclick=returnHome;$('#home').onclick=returnHome;
+$('#sound').onclick=()=>{void audio.unlock();audio.setSfxEnabled(!audio.getDiagnostics().sfxEnabled);updateAudioButtons();audio.play('start');};
+$('#music').onclick=()=>{void audio.unlock();audio.setMusicEnabled(!audio.getDiagnostics().musicEnabled);updateAudioButtons();};
 // A second finger does not synthesize a click while the first holds the joystick.
-for(const selector of ['#pause','#resume','#exit','#next','#sound']){
+let touchClickGuard=null;
+document.addEventListener('click',e=>{
+  if(!touchClickGuard||e.detail===0||performance.now()-touchClickGuard.at>700)return;
+  if(e.pointerType&&e.pointerType!=='touch')return;
+  if(Math.hypot(e.clientX-touchClickGuard.x,e.clientY-touchClickGuard.y)<20){e.preventDefault();e.stopImmediatePropagation();}
+},true);
+for(const selector of ['#pause','#resume','#exit','#next','#home','#sound','#music']){
   const button=$(selector),action=button.onclick;let start=null,lastTouch=-Infinity;
-  button.addEventListener('pointerdown',e=>{if(e.pointerType==='touch')start={id:e.pointerId,x:e.clientX,y:e.clientY};});
+  button.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'){e.preventDefault();start={id:e.pointerId,x:e.clientX,y:e.clientY};}});
   button.addEventListener('pointercancel',()=>start=null);
-  button.addEventListener('pointerup',e=>{if(start?.id!==e.pointerId)return;const tapped=Math.hypot(e.clientX-start.x,e.clientY-start.y)<14;start=null;if(tapped){e.preventDefault();lastTouch=performance.now();action();}});
+  button.addEventListener('pointerup',e=>{if(start?.id!==e.pointerId)return;const tapped=Math.hypot(e.clientX-start.x,e.clientY-start.y)<14;start=null;if(tapped){e.preventDefault();lastTouch=performance.now();touchClickGuard={at:lastTouch,x:e.clientX,y:e.clientY};action();}});
   button.onclick=e=>{if(e.detail===0||performance.now()-lastTouch>600)action();};
 }
 addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement)return;if(['Space','KeyW','KeyA','KeyS','KeyD','KeyE','ShiftLeft','ShiftRight','Escape'].includes(e.code)){e.preventDefault();if(e.code==='Escape'&&!e.repeat)togglePause();else keys.add(e.code);}});
 addEventListener('keyup',e=>keys.delete(e.code));
 addEventListener('blur',()=>{clearInputs();if(state==='race'||state==='countdown')togglePause();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&(state==='race'||state==='countdown'))togglePause();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&(state==='race'||state==='countdown'))togglePause();audio.setPaused(document.hidden||state==='paused');});
 let landscape=innerWidth>innerHeight;
 function resizeGame(){
   const nextLandscape=innerWidth>innerHeight,touch=useTouchLayout();
@@ -319,16 +367,19 @@ function resizeGame(){
 addEventListener('resize',resizeGame);addEventListener('orientationchange',clearInputs);coarsePointer.addEventListener('change',resizeGame);
 resizeGame();
 try {const name=localStorage.getItem('sugar-beat-name');if(name)$('#name').value=name;}catch{}
+try{const settings=JSON.parse(localStorage.getItem('sugar-beat-audio'));if(settings){audio.setMusicEnabled(settings.music!==false);audio.setSfxEnabled(settings.sfx!==false);}}catch{}
+audio.setScene('lobby');updateAudioButtons();
 lobbyScene();requestAnimationFrame(animate);
 
 // Development-only bridge: exercise the real state machine without waiting five minutes.
 // Vite removes this block completely from production builds.
 if(import.meta.env.DEV && new URLSearchParams(location.search).has('test')) {
+  const stopZombies=()=>{if(zombies){zombies.zombies=[];zombies.nextAt=Infinity;}};
   window.__gameTest={
-    snapshot:()=>({state,round,seed,elapsed,input:readPlayerInput(),courseLength:course.length,map:course.map,gates:course.gates,event:director?.event,events:director?.history.length,player:{...racers[0]},racers:racers.map(r=>({id:r.id,points:r.points,results:r.results,monsterHits:r.monsterHits,gatePasses:r.gatePasses,eliminated:r.eliminated,eliminationPlace:r.eliminationPlace,eliminationGate:r.eliminationGate,finished:r.finished,p:r.p}))}),
+    snapshot:()=>({state,round,seed,elapsed,input:readPlayerInput(),courseLength:course.length,map:course.map,gates:course.gates,event:director?.event,events:director?.history.length,zombies:zombies?.zombies,zombieEvents:zombies?.history,audio:audio.getDiagnostics(),player:{...racers[0]},racers:racers.map(r=>({id:r.id,points:r.points,results:r.results,monsterHits:r.monsterHits,gatePasses:r.gatePasses,eliminated:r.eliminated,eliminationPlace:r.eliminationPlace,eliminationGate:r.eliminationGate,finished:r.finished,p:r.p,zombie:r.zombie,zombieInfections:r.zombieInfections}))}),
     advance:(seconds)=>{for(let i=0;i<Math.ceil(seconds*60);i++){if(state==='race'||state==='countdown')tick(1/60);}updateHUD();},
     arrangeTimedGate:({seconds=2}={})=>{
-      resetRacers(racers);clearInputs();const gate=course.gates[0],platform=course.platforms[gate.platformIndex];
+      stopZombies();resetRacers(racers);clearInputs();const gate=course.gates[0],platform=course.platforms[gate.platformIndex];
       // Isolate deadline and input checks from randomly selected ice and obstacles.
       Object.assign(platform,{kind:'plain',amplitude:0,beltX:0,beltP:0});
       course.obstacles=course.obstacles.filter(ob=>ob.p<platform.start||ob.p>platform.end);buildCourse(course);
@@ -340,11 +391,11 @@ if(import.meta.env.DEV && new URLSearchParams(location.search).has('test')) {
       racers.slice(2).forEach((r,i)=>Object.assign(r,{x:40+i*2,finished:true,place:i+1,finishTime:elapsed-1,gatePasses:course.gates.length}));
       updateHUD();
     },
-    arrangeGrab:(asVictim=false)=>{racers.forEach((r,i)=>{r.x=i===0?0:i===1?1.3:30+i*2;r.p=3;r.y=0;r.vx=0;r.vp=0;r.grabImmune=0;r.grabTarget=null;r.grabbedBy=null;r.grabHeld=false;r.grabCooldown=0;r.diveCooldown=0;});if(asVictim){racers[1].grabTarget=0;racers[1].grabTime=0;racers[0].grabbedBy=1;racers[0].grabbedTime=.1;}},
-    arrangeMonster:(type)=>{const r=racers[0];racers.slice(1).forEach((bot,i)=>Object.assign(bot,{x:40+i*2,p:4,finished:true}));Object.assign(r,{x:0,p:4,y:0,vx:0,vp:0,vy:0,ground:true,stun:0,impact:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,grabTarget:null,grabbedBy:null});const event=beginMonsterEvent(director,course,[r],simulationTime,type);Object.assign(event,{x:0,p:4,width:12.8,monsterX:11.6,side:1});updateHUD();},
-    stopMonsters:()=>{director.event=null;director.nextAt=Infinity;},
+    arrangeGrab:(asVictim=false)=>{stopZombies();racers.forEach((r,i)=>{r.x=i===0?0:i===1?1.3:30+i*2;r.p=3;r.y=0;r.vx=0;r.vp=0;r.grabImmune=0;r.grabTarget=null;r.grabbedBy=null;r.grabHeld=false;r.grabCooldown=0;r.diveCooldown=0;r.zombie=0;r.biteCooldown=0;});if(asVictim){racers[1].grabTarget=0;racers[1].grabTime=0;racers[0].grabbedBy=1;racers[0].grabbedTime=.1;}},
+    arrangeMonster:(type)=>{stopZombies();const r=racers[0];racers.slice(1).forEach((bot,i)=>Object.assign(bot,{x:40+i*2,p:4,finished:true}));Object.assign(r,{x:0,p:4,y:0,vx:0,vp:0,vy:0,ground:true,stun:0,impact:0,charred:0,burning:0,soaked:0,frozen:0,paralyzed:0,reversed:0,grabTarget:null,grabbedBy:null,zombie:0});const event=beginMonsterEvent(director,course,[r],simulationTime,type);Object.assign(event,{x:0,p:4,width:12.8,monsterX:11.6,side:1});updateHUD();},
+    stopMonsters:()=>{stopZombies();director.event=null;director.nextAt=Infinity;},
     arrangeShelter:(type,side=1,exposed=false)=>{
-      const r=racers[0];resetRacers(racers);racers.slice(1).forEach(bot=>bot.finished=true);
+      stopZombies();const r=racers[0];resetRacers(racers);racers.slice(1).forEach(bot=>bot.finished=true);
       Object.assign(r,{x:0,p:10,y:0,vx:0,vp:0,vy:0});
       const event=beginMonsterEvent(director,course,[r],simulationTime,type);
       Object.assign(event,{x:0,p:10,width:12.8,monsterX:side*11.6,side});
@@ -352,5 +403,18 @@ if(import.meta.env.DEV && new URLSearchParams(location.search).has('test')) {
       const spot=spots[0];Object.assign(r,{x:exposed?-spot.x:spot.x,p:spot.p});resetTerrainCollisionHistory(racers);
       updateHUD();return spot;
     },
+    infectPlayer:()=>{infectRacer(racers[0],'test-zombie',racers);updateHUD();},
+    arrangeZombieBite:()=>{
+      stopZombies();resetRacers(racers);clearInputs();director.event=null;director.nextAt=Infinity;
+      racers.forEach((r,i)=>Object.assign(r,{x:i===0?0:i===1?1.3:40+i*2,p:3,y:0,finished:i>1,place:i,finishTime:1,frozen:i===1?20:0}));
+      infectRacer(racers[0],'test-zombie',racers);updateHUD();
+    },
+    arrangeZombieFinish:()=>{
+      stopZombies();resetRacers(racers);clearInputs();director.event=null;director.nextAt=Infinity;finishCount=11;
+      racers.slice(1).forEach((r,i)=>Object.assign(r,{finished:true,place:i+1,finishTime:elapsed,gatePasses:3}));
+      Object.assign(racers[0],{x:course.platforms.at(-1).x,p:course.length+.1,y:0,gatePasses:3});infectRacer(racers[0],'test-zombie',racers);updateHUD();
+    },
+    spawnZombie:()=>{zombies.nextAt=simulationTime;director.event=null;director.nextAt=Infinity;},
+    audioTrack:mapId=>{audio.setScene('race',mapId);audio.update();return audio.getDiagnostics();},
   };
 }

@@ -4,6 +4,7 @@ import {generateTimedGates,stepTimedGates} from '../src/timed-gates.js';
 import {generateCourse,createRacers,resetRacers,stepRacer,stepGrabs,botInput,resolveRacerCollisions,raceOrder,awardRound,roundPoints,THEMES,platformX} from '../src/game.js';
 import {createMonsterDirector,beginMonsterEvent,stepMonsterEvents,advanceStatuses,applyMonsterHit,effectiveInput} from '../src/monster.js';
 import {resolveTerrainCollisions} from '../src/cover.js';
+import {createZombieDirector,stepZombieEvents,canFinishRace} from '../src/zombie.js';
 
 const dt=1/60,idle={x:0,forward:0,jump:false,dive:false,grab:false};
 const previousPositions=racers=>new Map(racers.map(r=>[r.id,{x:r.x,p:r.p,y:r.y,respawns:r.respawns}]));
@@ -124,11 +125,12 @@ test('next-round reset restores eliminated racers and keeps cumulative scores',(
     assert.equal(r.gatePasses,0);assert.deepEqual(r.gateTimes,[]);assert.equal(r.points,scores[index]);assert.equal(r.results.length,1);assert.equal(r.finished,false);
   });
 });
-test('all 36 maps remain finishable with real AI, monsters and timed eliminations',()=>{
-  const failures=[];let finishers=0,eliminated=0;
+test('all 36 maps remain finishable with real AI, elemental monsters, zombie infections and timed eliminations',()=>{
+  const failures=[];let finishers=0,eliminated=0,infections=0,zombieSpawns=0;
   for(let mapId=1;mapId<=36;mapId++) {
     const seed=1234+mapId*199,round=(mapId-1)%3,course=generateCourse(seed,round,mapId),racers=createRacers('AI gate test',seed),director=createMonsterDirector(seed^mapId,round);
-    resetRacers(racers);director.nextAt+=3.4;
+    const zombieDirector=createZombieDirector(seed^mapId,round);
+    resetRacers(racers);director.nextAt+=3.4;zombieDirector.nextAt+=3.4;
     for(let frame=0;frame<THEMES[round].time*60;frame++) {
       const elapsed=(frame+1)*dt,time=elapsed+3.4,previous=previousPositions(racers);
       for(const r of racers)advanceStatuses(r,dt);
@@ -137,11 +139,14 @@ test('all 36 maps remain finishable with real AI, monsters and timed elimination
       stepGrabs(racers,inputs,dt);
       for(const r of racers)stepRacer(r,inputs.get(r.id),course,time,dt);
       resolveRacerCollisions(racers,course,time);
+      stepZombieEvents(zombieDirector,course,racers,time,dt,inputs);
       stepTimedGates(racers,course,elapsed,time,dt,previous);
-      for(const r of racers)if(!r.finished&&!r.eliminated&&r.gatePasses===course.gates.length&&r.p>=course.length&&r.y>=-.1&&Math.abs(r.x-course.platforms.at(-1).x)<course.width/2){r.finished=true;r.finishTime=elapsed;r.place=racers.filter(other=>other.finished).length;}
+      for(const r of racers)if(canFinishRace(r)&&r.gatePasses===course.gates.length&&r.p>=course.length&&r.y>=-.1&&Math.abs(r.x-course.platforms.at(-1).x)<course.width/2){r.finished=true;r.finishTime=elapsed;r.place=racers.filter(other=>other.finished).length;}
+      assert.ok(zombieDirector.zombies.length<=2&&zombieDirector.zombies.every(zombie=>Number.isFinite(zombie.x+zombie.p+zombie.y)));
       if(racers.every(r=>r.finished||r.eliminated))break;
     }
     const count=racers.filter(r=>r.finished).length;finishers+=count;eliminated+=racers.filter(r=>r.eliminated).length;
+    infections+=racers.reduce((sum,r)=>sum+r.zombieInfections,0);zombieSpawns+=zombieDirector.history.filter(event=>event.type==='spawn').length;
     if(count<1)failures.push({mapId,round,eliminated:racers.filter(r=>r.eliminated).length,gates:course.gates});
     assert.ok(racers.every(r=>Number.isFinite(r.x+r.y+r.p+r.vx+r.vy+r.vp)));
     for(const r of racers.filter(r=>r.finished))assert.ok(r.gateTimes.every((time,index)=>time<=course.gates[index].deadline));
@@ -150,4 +155,5 @@ test('all 36 maps remain finishable with real AI, monsters and timed elimination
     for(const r of racers.filter(r=>r.eliminated))assert.equal(r.results[0].place,r.eliminationPlace);
   }
   assert.deepEqual(failures,[]);assert.ok(finishers>36,`Only ${finishers} racers finished`);assert.ok(eliminated>36,`Only ${eliminated} racers were eliminated`);
+  assert.ok(zombieSpawns>=36,`Only ${zombieSpawns} NPC zombies spawned`);assert.ok(infections>36,`Only ${infections} infections occurred`);
 });

@@ -64,10 +64,13 @@ export function advanceStatuses(r,dt) {
   r.paralyzed=clean(Math.max(0,r.paralyzed-dt));
   // Five full seconds of reversed controls begin after paralysis ends.
   r.reversed=clean(Math.max(0,r.reversed-(dt-blockedTime)));
-  for(const key of ['charred','burning','soaked','frozen'])r[key]=clean(Math.max(0,r[key]-dt));
+  for(const key of ['charred','burning','soaked','frozen','zombie','biteCooldown'])r[key]=clean(Math.max(0,(r[key]??0)-dt));
 }
 export function effectiveInput(r,input) {
-  if(r.finished||r.eliminated||r.frozen>0||r.paralyzed>0)return {x:0,forward:0,jump:false,dive:false,grab:false,push:false,backDive:false};
-  if(r.reversed<=0)return {...input,push:false,backDive:false};
-  return {...input,x:input.x?-input.x:0,forward:input.forward?-input.forward:0,jump:!!input.dive,dive:!!input.jump,grab:false,push:!!input.grab,backDive:true};
+  if(r.finished||r.eliminated||r.frozen>0||r.paralyzed>0)return {x:0,forward:0,jump:false,dive:false,grab:false,push:false,backDive:false,...(r.zombie>0||input.bite!==undefined?{bite:false}:{})};
+  const mapped=r.reversed<=0?{...input,push:false,backDive:false}:{...input,x:input.x?-input.x:0,forward:input.forward?-input.forward:0,jump:!!input.dive,dive:!!input.jump,grab:false,push:!!input.grab,backDive:true};
+  // Infection replaces the interaction button; movement still obeys lightning.
+  if(r.zombie>0)Object.assign(mapped,{grab:false,push:false,bite:!!(input.bite||input.grab)});
+  else if(input.bite!==undefined)mapped.bite=false;
+  return mapped;
 }

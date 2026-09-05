@@ -122,6 +122,7 @@ test('moving terrain changes shelter positions and occlusion during an active at
 });
 test('fire chars and slows, water ejects, and ice blocks every gameplay action',()=>{
   const {course,racers}=setup(),[fire,water,ice,normal]=racers;for(const r of racers){r.x=0;r.p=0;}
+  normal.id=fire.id; // Compare equal manual steering; AI intentionally retains its route tuning.
   applyMonsterHit(fire,'fire',1);assert.equal(fire.charred,3.5);assert.equal(fire.burning,2.5);fire.stun=0;fire.y=0;fire.ground=true;fire.vy=0;
   for(let i=0;i<15;i++){stepRacer(fire,{...idle,forward:1},course,i/60,1/60);stepRacer(normal,{...idle,forward:1},course,i/60,1/60);}assert.ok(fire.p<normal.p*.8);
   water.x=course.platforms[0].width/2-.5;applyMonsterHit(water,'water',1);
