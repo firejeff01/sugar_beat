@@ -60,6 +60,12 @@ function bean(color) {
 function clearGroup(g) {g.traverse(o=>{if(o.geometry)o.geometry.dispose();o.userData.status?.dispose();});g.clear();}
 let obstacleMeshes=[],platformMeshes=[],racerMeshes=[],grabLines=[],course,racers=[],round=0,seed=0,state='lobby',previousState='',elapsed=0,countTime=3.4,simulationTime=0,accumulator=0,finishCount=0,toastTimer=0,lastRespawns=0,director=null;
 const keys=new Set(),audio=new GameAudio();let zombies=null,audioEventId=0,audioAttackId=0;
+// Group race information in normal flow on phones; desktop keeps its existing positions.
+const raceDashboard=document.createElement('div'),raceMessages=document.createElement('div');
+raceDashboard.className='race-dashboard';raceMessages.className='race-messages';
+for(const selector of ['.race-top','.race-progress','#gate-status'])raceDashboard.append($(selector));
+for(const selector of ['#monster-warning','#status-panel','#zombie-warning','#toast','#race-hint'])raceMessages.append($(selector));
+raceDashboard.append(raceMessages);$('#hud').prepend(raceDashboard);
 const touchControls=createTouchControls({stick:$('#touch-stick'),buttons:document.querySelectorAll('.touch-actions [data-key]'),isEnabled:()=>(state==='race'||state==='countdown')&&!racers[0]?.eliminated});
 function clearInputs(){keys.clear();touchControls.reset();}
 function readPlayerInput(){
@@ -75,7 +81,7 @@ function updateAudioButtons(){
   $('#music').title=`背景音樂 · ${status.profile?.name??status.profile??'糖豆衝衝'}`;
   try{localStorage.setItem('sugar-beat-audio',JSON.stringify({music:status.musicEnabled,sfx:status.sfxEnabled}));}catch{}
 }
-function toast(text) {$('#toast').textContent=useTouchLayout()?text.replaceAll('按 Shift','點「前撲」').replaceAll('按住 E + 方向鍵','按住「抓拉」＋拖動搖桿').replaceAll('按住 E 咬人','按住「咬人」'):text;$('#toast').classList.remove('hidden');toastTimer=3;}
+function toast(text) {$('#toast').textContent=useTouchLayout()?text.replaceAll('按 Shift','點「前撲」').replaceAll('按住 E + 方向鍵','按住「抓拉」＋拖動搖桿').replaceAll('按住 E 咬人','按住「咬人」'):text;$('#toast').classList.remove('hidden');toastTimer=useTouchLayout()?2:3;}
 function buildCourse(c) {
   gateView.clear();clearGroup(courseGroup);obstacleMeshes=[];platformMeshes=[];
   const theme=THEMES[c.round];scene.fog.color.setHex(theme.sky);renderer.setClearColor(theme.sky);
@@ -199,7 +205,7 @@ function showResults() {
   $('#next').textContent=isFinal?'再玩一輪 ↻':'前往下一關 →';$('#home').classList.toggle('hidden',!isFinal);$('#next').focus();audio.play('result');
 }
 function updateHUD() {
-  const order=raceOrder(racers),me=racers[0];$('#position').innerHTML=`${order.findIndex(r=>r.id===0)+1}<em>/12</em>`;$('#timer').innerHTML=`${Math.max(0,Math.ceil(THEMES[round].time-elapsed))}<span>s</span>`;$('#score').textContent=me.points;
+  const order=raceOrder(racers),me=racers[0],touch=useTouchLayout();$('#position').innerHTML=`${order.findIndex(r=>r.id===0)+1}<em>/12</em>`;$('#timer').innerHTML=`${Math.max(0,Math.ceil(THEMES[round].time-elapsed))}<span>s</span>`;$('#score').textContent=me.points;
   $('#round-label').textContent=useTouchLayout()?`R${round+1}/3 · MAP ${course.map.id}/36`:`ROUND 0${round+1} / 03 · MAP ${String(course.map.id).padStart(2,'0')} / 36 · 極難`;
   const nextGate=course.gates[me.gatePasses],gateStatus=$('#gate-status'),remaining=nextGate?Math.max(0,Math.ceil(nextGate.deadline-elapsed)):0;
   gateStatus.dataset.state=me.eliminated?'eliminated':me.finished||!nextGate?'passed':remaining<=10?'urgent':'open';
@@ -207,6 +213,7 @@ function updateHUD() {
   $('#gate-timer').textContent=me.eliminated?`+${roundPoints(me.eliminationPlace,round,false)} 分`:me.finished||!nextGate?'⚑':`${remaining}s`;
   $('#gate-detail').textContent=me.eliminated?`門 ${me.eliminationGate} 超時 · 觀戰中${round<2?'，下一關重新上場':'，等待最終積分'}`:me.finished?'等待其他選手完成比賽':nextGate?`${state==='countdown'?'GO 後開始計時':`前方 ${Math.max(0,Math.ceil(nextGate.p-me.p))}m`} · 歸零未通過即淘汰`:'最後一段路，還沒到終點別鬆懈！';
   if(me.zombie>0&&!me.eliminated)$('#gate-detail').textContent=`感染中不能通關 · ${me.zombie.toFixed(1)}s 後解除 · 關門倒數繼續`;
+  if(touch)$('#gate-detail').textContent=me.eliminated?`門 ${me.eliminationGate} 超時 · 觀戰中`:me.finished?'等待結算':me.zombie>0?'感染中禁止通關':nextGate?state==='countdown'?'GO 後計時':`${Math.max(0,Math.ceil(nextGate.p-me.p))}m · 逾時淘汰`:'衝向終點';
   $('.race-stats>div:first-child small').textContent=me.eliminated?'淘汰名次':'即時名次';
   $('#hud').classList.toggle('spectating',me.eliminated);
   $('#progress-fill').style.width=`${clamp(me.p/course.length*100,0,100)}%`;$('#dive-meter').style.width=`${(1-me.diveCooldown/1.15)*100}%`;$('#dive-label').textContent=me.diveCooldown>0?'前撲恢復中':'前撲就緒';
@@ -223,6 +230,10 @@ function updateHUD() {
   if(phase==='warning'||phase==='attack'){
     warn.dataset.type=event.type;warn.querySelector('strong').textContent=sheltered?'✓ 掩體保護中 · 小心被拉出去':`${phase==='warning'?'怪物現身':'正在攻擊'} · ${ATTACKS[event.type].name}`;
     warn.querySelector('span').textContent=sheltered?'威化牆已擋住攻擊 · 留在綠色區域、別跳起露身':phase==='warning'?`${ATTACKS[event.type].warning} · ${Math.max(0,event.attackAt-simulationTime).toFixed(1)}s`:'躲到威化牆背面的綠色區域，或離開攻擊範圍！';
+    if(touch){
+      warn.querySelector('strong').textContent=sheltered?'✓ 掩體保護中':`${{fire:'火焰',water:'水砲',ice:'冰息',lightning:'雷擊'}[event.type]} · ${phase==='warning'?`${Math.max(0,event.attackAt-simulationTime).toFixed(1)}s`:'攻擊中'}`;
+      warn.querySelector('span').textContent=sheltered?'留在牆後，別跳起':`${event.side>0?'右':'左'}側來襲 · 躲牆後`;
+    }
   }
   const statuses=[];
   if(me.zombie>0)statuses.push(`殭屍 ${me.zombie.toFixed(1)}s · 速度 ×1.2 · 不能通關`);
@@ -231,14 +242,24 @@ function updateHUD() {
   if(me.frozen>0)statuses.push(`冰凍 ${me.frozen.toFixed(1)}s · 無法操作`);
   if(me.paralyzed>0)statuses.push(`麻痺 ${me.paralyzed.toFixed(1)}s`);
   if(me.reversed>0)statuses.push(`操作反轉 ${me.reversed.toFixed(1)}s`);
-  $('#status-panel').classList.toggle('hidden',me.eliminated||!statuses.length);$('#status-list').textContent=statuses.join(' / ');$('#reverse-keys').classList.toggle('hidden',me.reversed<=0);
+  $('#status-panel').classList.toggle('hidden',me.eliminated||!statuses.length);
+  if(touch){
+    const badges=[];
+    for(const [key,label] of [['zombie','殭屍'],['charred','燒焦'],['soaked','水砲'],['frozen','冰凍'],['paralyzed','麻痺'],['reversed','反轉']]){
+      if(me[key]<=0)continue;
+      const badge=document.createElement('span');badge.className=`status-badge ${key}`;
+      badge.textContent=`${label} ${me[key].toFixed(1)}s${key==='zombie'?' ×1.2':key==='frozen'?' · 無法操作':''}`;badges.push(badge);
+    }
+    $('#status-list').replaceChildren(...badges);
+  }else $('#status-list').textContent=statuses.join(' / ');
+  $('#reverse-keys').classList.toggle('hidden',me.reversed<=0);
   if(me.reversed>0){$('#grab-label').textContent=me.grabCooldown>0?'反轉推開 · 冷卻中':'E 現在是推開';$('#dive-label').textContent='SPACE 後撲 / SHIFT 跳';}
   if(me.zombie>0){$('#grab-label').textContent=me.biteCooldown>0?`咬人冷卻 ${me.biteCooldown.toFixed(1)}s`:'E 咬人 · 可以傳染對手';$('#grab-meter').style.width=`${clamp(1-me.biteCooldown/1.1,0,1)*100}%`;}
   if(useTouchLayout()){
     $('#race-hint').textContent=$('#race-hint').textContent.replaceAll('按 Shift','點「前撲」').replaceAll('按住 E','按住「抓拉」');
-    $('#reverse-keys').innerHTML='搖桿方向相反<br>跳躍 ⇄ 前撲 · 抓拉變推開';
+    $('#reverse-keys').textContent='搖桿反向 · 跳躍 ⇄ 前撲';
   }else $('#reverse-keys').innerHTML='W ⇄ S · A ⇄ D<br>SPACE ⇄ SHIFT · E 變推開';
-  if(me.zombie>0)$('#reverse-keys').innerHTML=useTouchLayout()?'搖桿方向相反<br>跳躍 ⇄ 前撲 · 咬人仍可用':'W ⇄ S · A ⇄ D<br>SPACE ⇄ SHIFT · E 咬人';
+  if(me.zombie>0)$('#reverse-keys').innerHTML=useTouchLayout()?'搖桿反向 · 跳躍 ⇄ 前撲':'W ⇄ S · A ⇄ D<br>SPACE ⇄ SHIFT · E 咬人';
   const reversed=me.reversed>0,locked=me.eliminated||me.frozen>0||me.paralyzed>0;
   const touchLabels={KeyE:[reversed?'推開':'抓拉',me.grabTarget!==null?'拉走他！':me.grabCooldown>0?`${me.grabCooldown.toFixed(1)}s 冷卻`:reversed?'點一下推開':'按住拖人'],ShiftLeft:[reversed?'跳躍':'前撲',reversed?'放開再跳':me.diveCooldown>0?`${me.diveCooldown.toFixed(1)}s 冷卻`:me.grabbedBy!==null?'點我掙脫':'也能掙脫'],Space:[reversed?'後撲':'跳躍',reversed?me.diveCooldown>0?`${me.diveCooldown.toFixed(1)}s 冷卻`:'反向撲出去':'放開再跳']};
   if(me.zombie>0)touchLabels.KeyE=['咬人',me.biteCooldown>0?`${me.biteCooldown.toFixed(1)}s 冷卻`:'按住傳染'];
@@ -253,6 +274,10 @@ function updateHUD() {
   const nearZombie=zombies?.zombies.some(z=>Math.hypot(z.x-me.x,z.p-me.p)<20),infected=racers.filter(r=>r.zombie>0&&!r.eliminated&&!r.finished).length;
   const zombieWarning=$('#zombie-warning');zombieWarning.classList.toggle('hidden',me.eliminated||(!nearZombie&&!infected));
   zombieWarning.textContent=me.zombie>0?`${useTouchLayout()?'按住「咬人」':'按住 E 咬人'}傳染對手 · 再被咬會重算 10 秒`:nearZombie?'☠ 殭屍出沒！繞開牆角，別被咬到':`☠ ${infected} 位選手已感染 · 保持距離`;
+  if(touch){
+    zombieWarning.classList.toggle('hidden',me.eliminated||me.zombie>0||!nearZombie);
+    zombieWarning.textContent='☠ 殭屍接近 · 繞牆避開';
+  }
 }
 function tick(dt) {
   simulationTime+=dt;

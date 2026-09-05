@@ -1,4 +1,8 @@
 import {test,expect} from '@playwright/test';
+// Exercise the system-font fallback without depending on the external font CDN.
+test.beforeEach(async({page})=>{
+  await page.route('**/fonts.googleapis.com/**',route=>route.abort());
+});
 test('name → controls → pause → three rounds → all scores → fresh seed',async({page})=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/?test');await expect(page.locator('#world canvas')).toBeVisible();
