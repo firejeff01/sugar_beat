@@ -35,3 +35,15 @@ test('mobile start and touch controls fit the viewport',async({page})=>{
   await page.screenshot({path:'test-results/mobile-race.png'});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
+
+test('E grabs a nearby AI, release starts cooldown, and Shift escapes an AI grab',async({page})=>{
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/?test');await page.locator('#start-form button').click();await page.evaluate(()=>window.__gameTest.advance(4));
+  await page.evaluate(()=>window.__gameTest.arrangeGrab());
+  await page.keyboard.down('e');await page.evaluate(()=>window.__gameTest.advance(.05));
+  let s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.grabs).toBe(1);expect(s.player.grabTarget).toBe(1);
+  await expect(page.locator('#grab-label')).toContainText('抓到了');await page.screenshot({path:'test-results/grab.png'});
+  await page.keyboard.up('e');await page.evaluate(()=>window.__gameTest.advance(.05));s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.grabTarget).toBeNull();expect(s.player.grabCooldown).toBeGreaterThan(2);
+  await page.evaluate(()=>window.__gameTest.arrangeGrab(true));await page.keyboard.down('Shift');await page.evaluate(()=>window.__gameTest.advance(.05));await page.keyboard.up('Shift');
+  s=await page.evaluate(()=>window.__gameTest.snapshot());expect(s.player.grabbedBy).toBeNull();expect(s.player.escapes).toBe(1);expect(errors).toEqual([]);
+});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateCourse,createRacers,resetRacers,stepRacer,botInput,resolveRacerCollisions,awardRound,finalOrder,THEMES} from '../src/game.js';
+import {generateCourse,platformAt,platformX,obstaclePose,createRacers,resetRacers,stepRacer,stepGrabs,GRAB,botInput,resolveRacerCollisions,awardRound,finalOrder,THEMES} from '../src/game.js';
 
 test('same seed reproduces courses; new seeds change them; rounds get harder',()=>{
   assert.deepEqual(generateCourse(42,0),generateCourse(42,0));
@@ -9,7 +9,8 @@ test('same seed reproduces courses; new seeds change them; rounds get harder',()
   for(let r=1;r<3;r++){assert.ok(courses[r].length>courses[r-1].length);assert.ok(courses[r].width<courses[r-1].width);assert.ok(courses[r].obstacles.length>courses[r-1].obstacles.length);}
   for(let seed=0;seed<100;seed++)for(let r=0;r<3;r++) {
     const c=generateCourse(seed,r);
-    for(let i=1;i<c.platforms.length;i++){const a=c.platforms[i-1],b=c.platforms[i];assert.ok(b.start-a.end<3);assert.ok(Math.abs(a.x-b.x)<1.6);assert.ok(b.width>=10);}
+    assert.ok(new Set(c.platforms.map(p=>p.kind)).size>=(r===0?5:6));
+    for(let i=1;i<c.platforms.length;i++){const a=c.platforms[i-1],b=c.platforms[i];assert.ok(b.start-a.end<3);assert.ok(Math.abs(a.x-b.x)<1.8);assert.ok(b.width>=5);for(const time of [0,1,3,5]){assert.ok(Math.abs(platformX(a,time)-platformX(b,time+.6))<(a.width+b.width)/2-2,'landing zones must overlap');}}
   }
 });
 test('keyboard motion, jump, dive cooldown, and fall recovery are simulated',()=>{
@@ -21,21 +22,27 @@ test('keyboard motion, jump, dive cooldown, and fall recovery are simulated',()=
   r.x=100;r.y=-9;stepRacer(r,input,c,2,1/60);assert.equal(r.respawns,1);assert.equal(r.x,r.checkpoint.x);
 });
 test('AI completes varied generated courses using the same movement and collision simulation',()=>{
-  const failures=[];let finishedTotal=0,total=0;
+  const failures=[];let finishedTotal=0,total=0,grabs=0,escapes=0;
   for(let seed=1;seed<=12;seed++) for(let round=0;round<3;round++) {
     const course=generateCourse(seed,round),racers=createRacers('AI test',seed);resetRacers(racers);
     for(let step=0;step<THEMES[round].time*60;step++) {
       const time=step/60;
-      for(const r of racers) stepRacer(r,botInput(r,course,time),course,time,1/60);
+      const inputs=new Map(racers.map(r=>[r.id,botInput(r,course,time,racers)]));
+      stepGrabs(racers,inputs,1/60);
+      for(const r of racers) stepRacer(r,inputs.get(r.id),course,time,1/60);
       resolveRacerCollisions(racers);
       for(const r of racers)if(!r.finished&&r.p>=course.length&&r.y>=-.1&&Math.abs(r.x-course.platforms.at(-1).x)<course.width/2){r.finished=true;r.finishTime=time;}
       if(racers.every(r=>r.finished))break;
     }
     const count=racers.filter(r=>r.finished).length;finishedTotal+=count;total+=12;
-    if(count<9)failures.push({seed,round,count,positions:racers.filter(r=>!r.finished).map(r=>({p:r.p,falls:r.respawns}))});
+    grabs+=racers.reduce((n,r)=>n+r.grabs,0);escapes+=racers.reduce((n,r)=>n+r.escapes,0);
+    assert.ok(racers.every(r=>Number.isFinite(r.x+r.y+r.p+r.vx+r.vy+r.vp)));
+    // The final now deliberately combines hazards; some timeouts are part of the race.
+    if(count<[9,9,4][round])failures.push({seed,round,count});
   }
-  assert.deepEqual(failures,[],JSON.stringify(failures));
-  assert.ok(finishedTotal/total>.96,`Only ${finishedTotal}/${total} finished`);
+  assert.ok(failures.length===0,JSON.stringify(failures));
+  assert.ok(finishedTotal/total>.87,`Only ${finishedTotal}/${total} finished`);
+  assert.ok(grabs>30&&escapes>10,'AI must use grabs and escapes during real races');
 });
 
 function collisionPair() {
@@ -85,6 +92,60 @@ test('packed AI crowds transmit impulses without invalid or explosive velocities
   assert.ok(racers[2].vx>0);assert.ok(Math.abs(racers.reduce((sum,r)=>sum+r.vx,0)-14)<1e-9);
   assert.ok(racers.every(r=>Number.isFinite(r.x+r.p+r.vx+r.vp)));
   assert.ok(racers.reduce((sum,r)=>sum+r.vx*r.vx+r.vp*r.vp,0)<=196);
+});
+
+const grabInputs=(grab=true,dive=false)=>new Map([[0,{grab}],[1,{dive,grab:false}]]);
+function grabPair(){const racers=collisionPair();racers.forEach(r=>r.grabImmune=0);racers[1].x=1.7;return racers;}
+test('holding grab catches the nearest eligible racer and transfers a pulling impulse',()=>{
+  const racers=grabPair(),[a,b]=racers;stepGrabs(racers,grabInputs(),1/60);
+  assert.equal(a.grabTarget,b.id);assert.equal(b.grabbedBy,a.id);assert.equal(a.grabs,1);
+  assert.ok(b.vx<0&&a.vx>0);assert.ok(Math.abs(a.vx+b.vx)<1e-9);
+  stepGrabs(racers,grabInputs(false),1/60);assert.equal(a.grabTarget,null);assert.equal(b.grabbedBy,null);assert.ok(a.grabCooldown>2);assert.ok(b.grabImmune>1);
+  stepGrabs(racers,grabInputs(),1/60);assert.equal(a.grabTarget,null,'cooldown prevents immediate regrabbing');
+});
+test('grab range, height, protection and completed racers are respected',()=>{
+  for(const overrides of [{x:3},{y:2},{grabImmune:1},{finished:true}]){
+    const racers=grabPair();Object.assign(racers[1],overrides);stepGrabs(racers,grabInputs(),1/60);assert.equal(racers[0].grabTarget,null);
+  }
+  const rs=grabPair();rs[1].x=4;stepGrabs(rs,grabInputs(),1/60);rs[1].x=1.7;
+  for(let i=0;i<20;i++)stepGrabs(rs,grabInputs(),1/60);
+  assert.equal(rs[0].grabTarget,1,'holding E must catch a racer that comes into range');
+});
+test('grabs time out without auto-repeating while E stays held; Shift escapes when ready',()=>{
+  const racers=grabPair(),[a,b]=racers;stepGrabs(racers,grabInputs(),1/60);
+  for(let i=0;i<60;i++)stepGrabs(racers,grabInputs(),1/60);
+  assert.equal(a.grabTarget,null);assert.equal(a.grabs,1);assert.equal(b.grabbedBy,null);
+  const second=grabPair();stepGrabs(second,grabInputs(),1/60);stepGrabs(second,grabInputs(true,true),1/60);
+  assert.equal(second[0].grabTarget,null);assert.equal(second[1].escapes,1);assert.ok(second[1].grabImmune>1);
+  const third=grabPair();stepGrabs(third,grabInputs(),1/60);third[1].diveCooldown=.5;stepGrabs(third,grabInputs(true,true),1/60);assert.equal(third[0].grabTarget,1);
+});
+test('falls and finishes release a grab; three racers cannot form a grab chain',()=>{
+  for(const overrides of [{y:-1},{finished:true},{x:5}]){const rs=grabPair();stepGrabs(rs,grabInputs(),1/60);Object.assign(rs[1],overrides);stepGrabs(rs,grabInputs(),1/60);assert.equal(rs[0].grabTarget,null);assert.equal(rs[1].grabbedBy,null);}
+  const rs=createRacers('Player',1).slice(0,3);resetRacers(rs);rs.forEach((r,i)=>Object.assign(r,{x:i*1.2,p:0,grabImmune:0}));
+  stepGrabs(rs,new Map(rs.map(r=>[r.id,{grab:true}])),1/60);
+  assert.equal(rs.filter(r=>r.grabTarget!==null).length,1);assert.equal(rs[1].grabTarget,null);assert.equal(rs[2].grabTarget,null);
+});
+test('split paths have real holes and safe aprons; moving platforms carry grounded racers',()=>{
+  const c=generateCourse(3,2),split=c.platforms.find(p=>p.kind==='split'),moving=c.platforms.find(p=>p.kind==='moving');
+  assert.equal(platformAt(c,split.x,split.start+8),undefined);assert.equal(platformAt(c,split.x+3,split.start+8),split);assert.equal(platformAt(c,split.x,split.start+2),split);
+  const [r]=createRacers('test',1);resetRacers([r]);r.x=platformX(moving,1);r.p=moving.start+4;
+  stepRacer(r,{x:0,forward:0},c,1.1,.1);assert.ok(Math.abs(r.x-platformX(moving,1.1))<1e-8);assert.equal(r.y,0);
+});
+test('ice retains lateral inertia; conveyor belts move idle racers',()=>{
+  const c=generateCourse(3,2);c.obstacles=[];
+  const [iceR,plainR,beltR]=createRacers('test',1);resetRacers([iceR,plainR,beltR]);
+  const ice=c.platforms.find(s=>s.kind==='ice'),belt=c.platforms.find(s=>s.kind==='conveyor');
+  Object.assign(iceR,{x:ice.x,p:ice.start+3,vx:6});Object.assign(plainR,{x:0,p:0,vx:6});
+  const idle={x:0,forward:0};stepRacer(iceR,idle,c,.1,.1);stepRacer(plainR,idle,c,.1,.1);assert.ok(iceR.vx>plainR.vx*2);
+  Object.assign(beltR,{x:belt.x,p:belt.start+3});stepRacer(beltR,idle,c,.1,.1);assert.ok(Math.abs(beltR.x-belt.x-belt.beltX*.1)<1e-8);assert.ok(beltR.p<belt.start+3);
+});
+test('pistons, swinging hammers and gusts affect actual physics',()=>{
+  const course=generateCourse(1,0),ob={x:0,p:0,offset:0,radius:3,phase:0,speed:1,direction:1};
+  const make=()=>{const [r]=createRacers('test',1);resetRacers([r]);r.x=0;r.p=0;return r;};
+  const piston=make();course.obstacles=[{...ob,kind:'piston'}];stepRacer(piston,{x:0,forward:0},course,Math.PI/2,1/60);assert.ok(piston.stun>0);
+  const hammer=make();course.obstacles=[{...ob,kind:'hammer'}];stepRacer(hammer,{x:0,forward:0},course,0,1/60);assert.ok(hammer.vx>0&&hammer.stun>0);
+  const wind=make();course.obstacles=[{...ob,kind:'fan'}];stepRacer(wind,{x:0,forward:0},course,0,1/60);assert.ok(wind.vx>0);
+  assert.notEqual(obstaclePose({...ob,kind:'piston'},0).height,obstaclePose({...ob,kind:'piston'},Math.PI/2).height);
 });
 test('all 12 racers receive three scores; DNF half points; ties resolved by elapsed time',()=>{
   const racers=createRacers('<script>name</script>',99);resetRacers(racers);

@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import './style.css';
-import { THEMES, COLORS, generateCourse, createRacers, resetRacers, botInput, obstaclePose, stepRacer, resolveRacerCollisions, raceOrder, awardRound, finalOrder, clamp } from './game.js';
+import { THEMES, COLORS, TERRAIN_NAMES, GRAB, generateCourse, platformX, createRacers, resetRacers, botInput, obstaclePose, stepGrabs, stepRacer, resolveRacerCollisions, raceOrder, awardRound, finalOrder, clamp } from './game.js';
 
 const $=s=>document.querySelector(s);
 $('#app').innerHTML=`
   <div id="world" aria-label="3D 糖豆競速場"></div><div class="vignette"></div>
   <header><a class="brand" href="./" aria-label="糖豆衝衝首頁"><span class="brand-icon">S<span>★</span></span><span>SUGAR<span class="brand-light">BEAT</span><small>糖豆衝衝</small></span></a><div class="top-right"><span class="local-badge"><i></i> SOLO + AI</span><button class="icon-button" id="sound" aria-label="開啟音效" title="音效">♫ <span>OFF</span></button><button class="icon-button hidden" id="pause" aria-label="暫停遊戲">Ⅱ</button></div></header>
-  <main id="lobby"><div class="lobby-copy"><div class="eyebrow"><span></span> 12 位選手 · 3 場冒險 · 1 頂皇冠</div><h1>小糖豆，<br>大<span class="pink-word">暴走<span class="spark">✦</span></span>。</h1><p class="intro">跳過混亂，撲向終點。<br>每一輪，都是全新的糖果障礙賽。</p><form id="start-form"><label for="name">選手名稱 <span>PLAYER NAME</span></label><div class="input-wrap"><span>☺</span><input id="name" maxlength="16" autocomplete="nickname" placeholder="幫你的糖豆取個名字" required value="糖豆新星"><span class="input-status">READY</span></div><button class="play-button" type="submit">出發！開始挑戰 <span>↗</span></button></form><div class="controls-guide"><span><kbd>W</kbd><span class="key-row"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>移動</span><span class="control-divider"></span><kbd class="wide">SPACE</kbd><span>跳躍</span><kbd class="wide">SHIFT</kbd><span>前撲</span></div><p class="lobby-note">隨機賽道 · 全員連跑三關 · 無須下載</p></div><div class="hero-label"><span class="player-tag">★ THAT'S YOU!</span><span class="hero-caption">軟萌登場，認真開跑。</span></div><div class="round-preview"><span class="preview-label">YOUR NEXT ADVENTURE <span>每輪重新生成</span></span>${THEMES.map((t,i)=>`<div class="round-card"><span class="round-no">0${i+1}</span><div><strong>${t.name}</strong><small>${['熱身競速','進階挑戰','終極決勝'][i]}</small></div><span class="difficulty">${'▰'.repeat(i+1)}${'▱'.repeat(2-i)}</span></div>`).join('')}</div></main>
-  <section id="hud" class="hidden"><div class="race-top"><div class="round-info"><span id="round-label"></span><h2 id="course-name"></h2></div><div class="race-stats"><div><small>即時名次</small><strong id="position">1<em>/12</em></strong></div><div><small>剩餘時間</small><strong id="timer">80<span>s</span></strong></div><div><small>總積分</small><strong id="score">0</strong></div></div></div><div class="race-progress"><div id="progress-fill"></div><span>START</span><span>FINISH ⚑</span></div><div class="leaderboard"><div class="board-title">LIVE RANKING <i></i></div><ol id="live-list"></ol></div><div id="race-hint"></div><div class="bottom-hud"><span><kbd>W A S D</kbd> 移動 <kbd>SPACE</kbd> 跳躍 <kbd>SHIFT</kbd> 前撲 <kbd>ESC</kbd> 暫停</span><div class="dive-status"><span id="dive-label">前撲就緒</span><div><i id="dive-meter"></i></div></div></div><div class="touch-controls"><div class="dpad"><button data-key="KeyW" aria-label="向前">▲</button><button data-key="KeyA" aria-label="向左">◀</button><button data-key="KeyS" aria-label="向後">▼</button><button data-key="KeyD" aria-label="向右">▶</button></div><div class="touch-actions"><button data-key="ShiftLeft">前撲</button><button data-key="Space">跳躍</button></div></div></section>
+  <main id="lobby"><div class="lobby-copy"><div class="eyebrow"><span></span> 12 位選手 · 3 場冒險 · 1 頂皇冠</div><h1>小糖豆，<br>大<span class="pink-word">暴走<span class="spark">✦</span></span>。</h1><p class="intro">推他一下，拉他一把。<br>全新亂鬥賽道，友情就在終點線前。</p><form id="start-form"><label for="name">選手名稱 <span>PLAYER NAME</span></label><div class="input-wrap"><span>☺</span><input id="name" maxlength="16" autocomplete="nickname" placeholder="幫你的糖豆取個名字" required value="糖豆新星"><span class="input-status">READY</span></div><button class="play-button" type="submit">出發！開始挑戰 <span>↗</span></button></form><div class="controls-guide"><span><kbd>W</kbd><span class="key-row"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>移動</span><span class="control-divider"></span><kbd class="wide">SPACE</kbd><span>跳躍</span><kbd class="wide">SHIFT</kbd><span>前撲</span><kbd>E</kbd><span>抓拉</span></div><p class="lobby-note">按住 E + 方向鍵拉人 · 被抓時 Shift 掙脫</p></div><div class="hero-label"><span class="player-tag">★ THAT'S YOU!</span><span class="hero-caption">軟萌登場，認真開跑。</span></div><div class="round-preview"><span class="preview-label">YOUR NEXT ADVENTURE <span>每輪重新生成</span></span>${THEMES.map((t,i)=>`<div class="round-card"><span class="round-no">0${i+1}</span><div><strong>${t.name}</strong><small>${['熱身競速','進階挑戰','終極決勝'][i]}</small></div><span class="difficulty">${'▰'.repeat(i+1)}${'▱'.repeat(2-i)}</span></div>`).join('')}</div></main>
+  <section id="hud" class="hidden"><div class="race-top"><div class="round-info"><span id="round-label"></span><h2 id="course-name"></h2></div><div class="race-stats"><div><small>即時名次</small><strong id="position">1<em>/12</em></strong></div><div><small>剩餘時間</small><strong id="timer">80<span>s</span></strong></div><div><small>總積分</small><strong id="score">0</strong></div></div></div><div class="race-progress"><div id="progress-fill"></div><span>START</span><span>FINISH ⚑</span></div><div class="leaderboard"><div class="board-title">LIVE RANKING <i></i></div><ol id="live-list"></ol></div><div id="race-hint"></div><div class="bottom-hud"><span><kbd>W A S D</kbd> 移動 <kbd>SPACE</kbd> 跳躍 <kbd>SHIFT</kbd> 前撲 / 掙脫 <kbd>E</kbd> 抓拉 <kbd>ESC</kbd> 暫停</span><div class="ability-meters"><div class="dive-status" id="grab-status"><span id="grab-label">E 抓拉就緒</span><div><i id="grab-meter"></i></div></div><div class="dive-status"><span id="dive-label">前撲就緒</span><div><i id="dive-meter"></i></div></div></div></div><div class="touch-controls"><div class="dpad"><button data-key="KeyW" aria-label="向前">▲</button><button data-key="KeyA" aria-label="向左">◀</button><button data-key="KeyS" aria-label="向後">▼</button><button data-key="KeyD" aria-label="向右">▶</button></div><div class="touch-actions"><button data-key="KeyE">抓拉</button><button data-key="ShiftLeft">前撲</button><button data-key="Space">跳躍</button></div></div></section>
   <div id="countdown" class="hidden" aria-live="assertive"></div><div id="toast" class="hidden" role="status"></div>
   <section id="results" class="overlay hidden" aria-labelledby="result-title"><div class="results-panel"><div class="eyebrow" id="result-eyebrow"></div><h2 id="result-title"></h2><p id="result-subtitle"></p><div id="podium"></div><div class="table-scroll"><table><thead id="result-head"></thead><tbody id="result-body"></tbody></table></div><div class="result-footer"><span id="score-rule"></span><button class="play-button" id="next">下一關 →</button></div></div></section>
   <section id="pause-panel" class="overlay hidden"><div class="pause-card"><span class="eyebrow">TAKE A BREATHER</span><h2>糖豆休息中</h2><p>計時與 AI 都已暫停。</p><button id="resume" class="play-button">繼續挑戰 →</button><button id="exit" class="secondary-button">離開本輪，回到起點</button></div></section>
@@ -17,7 +17,7 @@ $('#app').innerHTML=`
 let renderer;
 try {renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});} catch {$('#error').classList.remove('hidden');throw new Error('WebGL unavailable');}
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));renderer.setSize(innerWidth,innerHeight);
-renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0xbceefe);
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;renderer.setClearColor(0xbceefe);
 renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.25;
 $('#world').append(renderer.domElement);
 const scene=new THREE.Scene();scene.fog=new THREE.Fog(0xbceefe,50,160);
@@ -41,23 +41,36 @@ function bean(color) {
   g.userData={body,left,right,feet,face};return g;
 }
 function clearGroup(g) {g.traverse(o=>{if(o.geometry)o.geometry.dispose();});g.clear();}
-let obstacleMeshes=[],racerMeshes=[],course,racers=[],round=0,seed=0,state='lobby',previousState='',elapsed=0,countTime=3.4,simulationTime=0,accumulator=0,finishCount=0,toastTimer=0,lastRespawns=0;
+let obstacleMeshes=[],platformMeshes=[],racerMeshes=[],grabLines=[],course,racers=[],round=0,seed=0,state='lobby',previousState='',elapsed=0,countTime=3.4,simulationTime=0,accumulator=0,finishCount=0,toastTimer=0,lastRespawns=0;
 const keys=new Set();let muted=true,audio;
 function beep(freq=550,duration=.09) {if(muted)return;try {audio??=new (window.AudioContext||window.webkitAudioContext)();audio.resume();const osc=audio.createOscillator(),gain=audio.createGain();osc.type='sine';osc.frequency.value=freq;gain.gain.setValueAtTime(.07,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+duration);}catch{}}
 function toast(text) {$('#toast').textContent=text;$('#toast').classList.remove('hidden');toastTimer=3;}
 function buildCourse(c) {
-  clearGroup(courseGroup);obstacleMeshes=[];
+  clearGroup(courseGroup);obstacleMeshes=[];platformMeshes=[];
   const theme=THEMES[c.round];scene.fog.color.setHex(theme.sky);renderer.setClearColor(theme.sky);
   c.platforms.forEach((p,i)=>{
-    const length=p.end-p.start,z=-(p.start+p.end)/2;
-    box(p.width,.8,length,i%2?theme.color:0xf8f3ff,courseGroup,p.x,-.4,z);
-    box(.17,.08,length,0xffffff,courseGroup,p.x-p.width/2+.25,.04,z);box(.17,.08,length,0xffffff,courseGroup,p.x+p.width/2-.25,.04,z);
-    for(const side of [-1,1]) {box(.42,.45,length,0xff6eac,courseGroup,p.x+side*(p.width/2+.2),-.37,z);}
+    const length=p.end-p.start,z=-(p.start+p.end)/2,g=new THREE.Group();courseGroup.add(g);platformMeshes.push({p,g});
+    const surface={ice:0x91e6ff,conveyor:0x44416b,bridge:0xffbe60,split:0xc598f8,moving:0x45d8b7}[p.kind]??(i%2?theme.color:0xf8f3ff);
+    if(p.kind==='split') {
+      box(p.width,.8,5,surface,g,p.x,-.4,-p.start-2.5);box(p.width,.8,3,surface,g,p.x,-.4,-p.end+1.5);
+      const laneWidth=p.width/2-1.2;
+      for(const side of [-1,1]){box(laneWidth,.8,length-8,surface,g,p.x+side*(1.2+laneWidth/2),-.4,z-1);box(.14,.1,length-8,0xffde68,g,p.x+side*1.25,.03,z-1);}
+    }else box(p.width,.8,length,surface,g,p.x,-.4,z);
+    box(.17,.08,length,0xffffff,g,p.x-p.width/2+.25,.04,z);box(.17,.08,length,0xffffff,g,p.x+p.width/2-.25,.04,z);
+    for(const side of [-1,1]) {box(.42,.45,length,0xff6eac,g,p.x+side*(p.width/2+.2),-.37,z);}
+    if(p.kind==='conveyor') {
+      const stripes=new THREE.Group();g.add(stripes);g.userData.stripes=stripes;
+      for(let j=1;j<length-1;j+=1.25){box(p.width-.6,.04,.12,0xfed467,stripes,p.x,.04,-p.start-j);}
+      for(const side of [-1,1])for(let j=2;j<length;j+=4)mesh(new THREE.CylinderGeometry(.25,.25,.3,10),0x9b91b5,g,p.x+side*p.width/2,-.15,-p.start-j).rotation.z=Math.PI/2;
+    }
+    if(p.kind==='ice')for(let j=0;j<5;j++){const streak=box(.06,.02,2.5,0xe8fbff,g,p.x+(j%3-1)*2,.04,-p.start-4-j*2.5);streak.rotation.y=.45;}
+    if(p.kind==='bridge')for(let j=1;j<length;j+=1.5)box(p.width-.3,.03,.09,0xf49c53,g,p.x,.025,-p.start-j);
+    if(p.kind==='moving') {box(p.width+3,.18,.22,0x857fb3,courseGroup,p.x,-1.2,z);for(const side of [-1,1])sphere(.4,0xffcf61,g,p.x+side*(p.width/2-.6),.45,z);}
     for(let j=0;j<3;j++) {
       const arrow=new THREE.Shape();arrow.moveTo(-.3,.0);arrow.lineTo(0,.45);arrow.lineTo(.3,0);arrow.lineTo(0,.15);arrow.closePath();
-      const a=mesh(new THREE.ShapeGeometry(arrow),i%2?0xffffff:theme.color,courseGroup,p.x,.025,-p.start-3-j*.75);a.rotation.x=-Math.PI/2;
+      const a=mesh(new THREE.ShapeGeometry(arrow),i%2?0xffffff:theme.color,g,p.x,.06,-p.start-3-j*.75);a.rotation.x=-Math.PI/2;
     }
-    if(i>0){const pole=box(.09,1.1,.09,0xffffff,courseGroup,p.x-p.width/2+.6,.55,-p.start-2);box(.6,.35,.06,0x6654e8,courseGroup,pole.position.x+.28,.94,pole.position.z);}
+    if(i>0&&p.kind!=='moving'){const pole=box(.09,1.1,.09,0xffffff,g,p.x-p.width/2+.6,.55,-p.start-2);box(.6,.35,.06,0x6654e8,g,pole.position.x+.28,.94,pole.position.z);}
   });
   c.obstacles.forEach(ob=>{
     const g=new THREE.Group();g.position.set(ob.x,0,-ob.p);courseGroup.add(g);
@@ -69,6 +82,22 @@ function buildCourse(c) {
     } else if(ob.kind==='slider') {
       box(ob.radius*2+.8,.035,.2,0x6652ba,g,0,.02,0);
       const moving=new THREE.Group();g.add(moving);box(2.15,2.1,1.2,0x9365e9,moving,0,1.05,0);box(2.2,.32,1.24,0xffe277,moving,0,1.15,0);sphere(.17,0xffffff,moving,-.45,1.65,-.62);sphere(.17,0xffffff,moving,.45,1.65,-.62);g.userData.moving=moving;
+    } else if(ob.kind==='piston') {
+      box(2.4,.12,2,0xffd661,g,ob.offset,.06,0);
+      const piston=box(1.8,1,1.5,0xff568e,g,ob.offset,.5,0);g.userData.piston=piston;
+      box(2.5,.08,.14,0x403354,g,ob.offset,.14,-1);box(2.5,.08,.14,0x403354,g,ob.offset,.14,1);
+    } else if(ob.kind==='hammer') {
+      for(const side of [-1,1])box(.2,5.8,.2,0x7266a0,g,side*(ob.radius+.6),2.9,0);
+      box(ob.radius*2+1.5,.25,.25,0x7266a0,g,0,5.8,0);
+      const head=sphere(.96,0xff705f,g,0,1,0,1,1,1.1);g.userData.head=head;
+      const rod=mesh(new THREE.CylinderGeometry(.1,.1,1,10),0xffd464,g,0,3.5,0);g.userData.rod=rod;
+    } else if(ob.kind==='fan') {
+      const side=-ob.direction,x=side*(ob.radius+1.1),fan=new THREE.Group();fan.position.set(x,1.5,0);g.add(fan);fan.rotation.y=Math.PI/2;
+      mesh(new THREE.TorusGeometry(1,.16,10,24),0x7b64b5,fan);
+      const blades=new THREE.Group();fan.add(blades);box(1.8,.22,.12,0xfdd271,blades,0,0,0);box(.22,1.8,.12,0xfdd271,blades,0,0,0);g.userData.blades=blades;
+      box(.25,1.7,.25,0x7b64b5,g,x,.7,0);
+      const gusts=new THREE.Group();g.add(gusts);g.userData.gusts=gusts;
+      for(let j=0;j<6;j++)box(.9,.035,.06,0xffffff,gusts,-ob.radius+j*ob.radius/3,.4+j%2,-2+j*.7);
     } else {
       for(const side of [-1,1]) {mesh(new THREE.CylinderGeometry(.88,.88,1.4,20),0xff779e,g,side*ob.radius*.65,.7,0);mesh(new THREE.TorusGeometry(.87,.12,8,24),0xffffff,g,side*ob.radius*.65,1.05,0).rotation.x=Math.PI/2;sphere(.88,0xffc94e,g,side*ob.radius*.65,1.4,0,1,.38,1);}
     }
@@ -82,7 +111,7 @@ function buildCourse(c) {
   const water=box(230,.4,c.length+200,0x72cee9,courseGroup,0,-10,-c.length/2);water.receiveShadow=false;
   for(let i=0;i<20;i++) {const p=i/20*c.length,x=(i%2?1:-1)*(18+Math.sin(i*4)*6);const cloud=new THREE.Group();cloud.position.set(x,2+Math.sin(i)*6,-p);courseGroup.add(cloud);for(let j=0;j<3;j++){const m=sphere(2.4,0xffffff,cloud,j*2,Math.sin(j)*.8,0,1, .55, .7);m.castShadow=false;}}
 }
-function buildRacers() {clearGroup(beanGroup);racerMeshes=racers.map(r=>{const g=bean(r.color);beanGroup.add(g);if(r.id===0){const marker=mesh(new THREE.ConeGeometry(.22,.4,4),0xffffff,g,0,2.7,0);marker.rotation.z=Math.PI;g.userData.marker=marker;}return g;});}
+function buildRacers() {clearGroup(beanGroup);grabLines=racers.map(()=>{const line=mesh(new THREE.CylinderGeometry(.045,.045,1,8),0xffd24f,beanGroup);line.visible=false;return line;});racerMeshes=racers.map(r=>{const g=bean(r.color);beanGroup.add(g);if(r.id===0){const marker=mesh(new THREE.ConeGeometry(.22,.4,4),0xffffff,g,0,2.7,0);marker.rotation.z=Math.PI;g.userData.marker=marker;}return g;});}
 function lobbyScene() {
   course=generateCourse(23891,0);buildCourse(course);racers=createRacers('你',23891);resetRacers(racers);buildRacers();
   racers.forEach((r,i)=>{r.x=i===0?0:(i%4-1.5)*2.3;r.p=i===0?0:4+Math.floor(i/4)*3;r.y=0;});
@@ -117,6 +146,11 @@ function showResults() {
 function updateHUD() {
   const order=raceOrder(racers),me=racers[0];$('#position').innerHTML=`${order.findIndex(r=>r.id===0)+1}<em>/12</em>`;$('#timer').innerHTML=`${Math.max(0,Math.ceil(THEMES[round].time-elapsed))}<span>s</span>`;$('#score').textContent=me.points;
   $('#progress-fill').style.width=`${clamp(me.p/course.length*100,0,100)}%`;$('#dive-meter').style.width=`${(1-me.diveCooldown/1.15)*100}%`;$('#dive-label').textContent=me.diveCooldown>0?'前撲恢復中':'前撲就緒';
+  $('#grab-meter').style.width=`${(me.grabTarget!==null?1-me.grabTime/GRAB.duration:1-me.grabCooldown/GRAB.cooldown)*100}%`;
+  $('#grab-label').textContent=me.grabbedBy!==null?'被抓住！Shift 掙脫':me.grabTarget!==null?'抓到了！移動拉走他':me.grabCooldown>0?`抓拉冷卻 ${me.grabCooldown.toFixed(1)}s`:'E 抓拉就緒';
+  $('#grab-status').classList.toggle('caught',me.grabbedBy!==null);
+  const segment=course.platforms.find(p=>me.p>=p.start&&me.p<=p.end);
+  $('#race-hint').textContent=me.grabbedBy!==null?'被對手抓住！按 Shift 前撲掙脫':segment&&segment.kind!=='plain'?TERRAIN_NAMES[segment.kind]:THEMES[round].hint;
   $('#live-list').replaceChildren();order.slice(0,5).forEach((r,i)=>{const li=document.createElement('li');li.className=r.id===0?'is-you':'';const n=document.createElement('span');n.textContent=`${i+1}  ${r.name}`;const p=document.createElement('b');p.textContent=r.finished?'⚑':`${Math.round(clamp(r.p/course.length*100,0,100))}%`;li.append(n,p);$('#live-list').append(li);});
 }
 function tick(dt) {
@@ -124,8 +158,13 @@ function tick(dt) {
   if(state==='countdown') {const old=Math.ceil(countTime);countTime-=dt;$('#countdown').textContent=countTime>.4?Math.ceil(countTime-.4):'GO!';if(Math.ceil(countTime)!==old)beep(400+(4-Math.ceil(countTime))*120);if(countTime<=0){state='race';$('#countdown').classList.add('hidden');}return;}
   if(state!=='race')return;
   elapsed+=dt;
+  const inputs=new Map(racers.map(r=>[r.id,r.id===0?{x:Number(keys.has('KeyD'))-Number(keys.has('KeyA')),forward:Number(keys.has('KeyW'))-Number(keys.has('KeyS')),jump:keys.has('Space'),dive:keys.has('ShiftLeft')||keys.has('ShiftRight'),grab:keys.has('KeyE')}:botInput(r,course,simulationTime,racers)]));
+  const wasGrabbed=racers[0].grabbedBy,previousGrabs=racers[0].grabs;
+  stepGrabs(racers,inputs,dt);
+  if(racers[0].grabbedBy!==null&&wasGrabbed===null){toast('喂！有人拉你！按 Shift 掙脫');beep(180,.15);}
+  if(racers[0].grabs>previousGrabs){toast('抓到了！按住 E + 方向鍵拖走對手');beep(650,.1);}
   for(const r of racers) {
-    const input=r.id===0?{x:Number(keys.has('KeyD'))-Number(keys.has('KeyA')),forward:Number(keys.has('KeyW'))-Number(keys.has('KeyS')),jump:keys.has('Space'),dive:keys.has('ShiftLeft')||keys.has('ShiftRight')}:botInput(r,course,simulationTime);
+    const input=inputs.get(r.id);
     const wasGround=r.ground;stepRacer(r,input,course,simulationTime,dt);if(r.id===0&&wasGround&&!r.ground&&input.jump)beep(490,.06);
   }
   const previousImpact=racers[0].impact;
@@ -144,13 +183,22 @@ function animate(now) {
   if(state!=='paused') {
     if(state==='race'||state==='countdown'){accumulator+=dt;while(accumulator>=1/60){tick(1/60);accumulator-=1/60;}}
     else simulationTime+=dt;
-    obstacleMeshes.forEach(({ob,g})=>{const pose=obstaclePose(ob,simulationTime);if(g.userData.pivot)g.userData.pivot.rotation.y=pose.angle;if(g.userData.moving)g.userData.moving.position.x=pose.x-ob.x;});
+    platformMeshes.forEach(({p,g})=>{g.position.x=platformX(p,simulationTime)-p.x;if(g.userData.stripes)g.userData.stripes.position.z=(simulationTime*-p.beltP)%1.25;});
+    obstacleMeshes.forEach(({ob,g})=>{
+      const pose=obstaclePose(ob,simulationTime),data=g.userData;
+      if(data.pivot)data.pivot.rotation.y=pose.angle;if(data.moving)data.moving.position.x=pose.x-ob.x;
+      if(data.piston){data.piston.scale.y=pose.height;data.piston.position.y=pose.height/2;}
+      if(data.head){data.head.position.set(pose.x-ob.x,pose.y,0);const top=new THREE.Vector3(0,5.8,0),vector=data.head.position.clone().sub(top);data.rod.position.copy(top.add(data.head.position).multiplyScalar(.5));data.rod.scale.y=vector.length();data.rod.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),vector.normalize());}
+      if(data.blades)data.blades.rotation.z=simulationTime*15;if(data.gusts)data.gusts.position.x=pose.wind*((simulationTime*5)%1.8);
+    });
     racerMeshes.forEach((g,i)=>{
       const r=racers[i],data=g.userData,run=state==='lobby'?0:Math.hypot(r.vx,r.vp),bob=r.ground?Math.sin(now*.014+i)*Math.min(run*.007,.065):0;
       g.position.set(r.x,r.y+bob,-r.p);
       if(state==='lobby'){g.rotation.y=Math.PI-.35;data.body.rotation.z=Math.sin(now*.0018+i)*.07;g.position.y+=Math.sin(now*.002+i)*.1;}
       else {if(run>.2&&!r.finished)g.rotation.y=THREE.MathUtils.lerp(g.rotation.y,Math.atan2(-r.vx,r.vp),.18);data.body.rotation.x=r.dive>0?-1.2:0;data.body.rotation.z=r.stun>0?Math.sin(now*.04)*.3:r.impact>0?Math.sin(now*.045)*.2:0;}
-      data.feet.forEach((f,j)=>f.position.z=-.1+Math.sin(now*.018+j*Math.PI)*Math.min(run*.035,.26));data.left.rotation.x=Math.sin(now*.017)*run*.055;data.right.rotation.x=-data.left.rotation.x;
+      data.feet.forEach((f,j)=>f.position.z=-.1+Math.sin(now*.018+j*Math.PI)*Math.min(run*.035,.26));data.left.rotation.x=r.grabTarget!==null?-1.35:Math.sin(now*.017)*run*.055;data.right.rotation.x=r.grabTarget!==null?-1.35:-data.left.rotation.x;
+      const victim=r.grabTarget!==null?racers.find(v=>v.id===r.grabTarget):null,line=grabLines[i];line.visible=!!victim&&state==='race';
+      if(victim){const start=new THREE.Vector3(r.x,r.y+2.15,-r.p),end=new THREE.Vector3(victim.x,victim.y+2.15,-victim.p),delta=end.clone().sub(start);line.position.copy(start.add(end).multiplyScalar(.5));line.scale.y=delta.length();line.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize());}
       if(data.marker)data.marker.position.y=2.65+Math.sin(now*.004)*.13;
     });
     if(state==='race'||state==='countdown'||state==='results') {const me=racers[0],cp=clamp(me.p,-5,course.length),target=new THREE.Vector3(me.x*.6,Math.max(0,me.y)*.35+10.5,-cp+15);camera.position.lerp(target,1-Math.exp(-dt*5));camera.lookAt(me.x*.55,1,-cp-9);sun.position.set(me.x-15,30,-cp+14);sun.target.position.set(me.x,0,-cp-8);}
@@ -165,7 +213,7 @@ $('#next').onclick=()=>{if(round===2){startGame();}else{round++;startRound();}};
 $('#pause').onclick=togglePause;$('#resume').onclick=togglePause;
 $('#exit').onclick=()=>{state='lobby';keys.clear();$('#pause-panel').classList.add('hidden');$('#hud').classList.add('hidden');$('#countdown').classList.add('hidden');$('#pause').classList.add('hidden');$('#lobby').classList.remove('hidden');lobbyScene();};
 $('#sound').onclick=()=>{muted=!muted;$('#sound span').textContent=muted?'OFF':'ON';$('#sound').setAttribute('aria-label',muted?'開啟音效':'關閉音效');beep();};
-addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement)return;if(['Space','KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','Escape'].includes(e.code)){e.preventDefault();if(e.code==='Escape'&&!e.repeat)togglePause();else keys.add(e.code);}});
+addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement)return;if(['Space','KeyW','KeyA','KeyS','KeyD','KeyE','ShiftLeft','ShiftRight','Escape'].includes(e.code)){e.preventDefault();if(e.code==='Escape'&&!e.repeat)togglePause();else keys.add(e.code);}});
 addEventListener('keyup',e=>keys.delete(e.code));
 addEventListener('blur',()=>{keys.clear();if(state==='race'||state==='countdown')togglePause();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&(state==='race'||state==='countdown'))togglePause();});
@@ -180,5 +228,6 @@ if(import.meta.env.DEV && new URLSearchParams(location.search).has('test')) {
   window.__gameTest={
     snapshot:()=>({state,round,seed,elapsed,courseLength:course.length,player:{...racers[0]},racers:racers.map(r=>({id:r.id,points:r.points,results:r.results}))}),
     advance:(seconds)=>{for(let i=0;i<Math.ceil(seconds*60);i++){if(state==='race'||state==='countdown')tick(1/60);}updateHUD();},
+    arrangeGrab:(asVictim=false)=>{racers.forEach((r,i)=>{r.x=i===0?0:i===1?1.3:30+i*2;r.p=3;r.y=0;r.vx=0;r.vp=0;r.grabImmune=0;r.grabTarget=null;r.grabbedBy=null;r.grabHeld=false;r.grabCooldown=0;r.diveCooldown=0;});if(asVictim){racers[1].grabTarget=0;racers[1].grabTime=0;racers[0].grabbedBy=1;racers[0].grabbedTime=.1;}},
   };
 }

@@ -1,61 +1,129 @@
 export const COLORS = [0xff508d,0x33dbce,0xffc64b,0x9e83ff,0x57aaff,0xff865c,0x91d957,0xf775d2,0x5dd9ff,0xc7a3ff,0xffda82,0x55c7a2];
 export const BOT_NAMES = ['麻糬隊長','布丁暴走','薄荷閃電','芋泥球','檸檬蹦蹦','奶油小偷','泡泡糖','藍莓火箭','焦糖旋風','桃子汽水','棉花糖'];
 export const THEMES = [
-  { name:'糖霜起跑線', tag:'SUGAR SPRINT', hint:'繞過軟糖路障，跳過旋轉棒與平台間隙。', color:0x39d4c5, sky:0xbbeefe, time:80 },
-  { name:'果凍搖擺橋', tag:'JELLY JUNCTION', hint:'路面變窄！觀察移動路障，找準跳躍時機。', color:0xa58aff, sky:0xd7ceff, time:90 },
-  { name:'皇冠狂想曲', tag:'CROWN CHAOS', hint:'更快的旋轉棒、更長的賽道。衝向最後的皇冠！', color:0xffbd4a, sky:0xffdfc3, time:100 },
+  { name:'糖霜起跑線', tag:'SUGAR SPRINT', hint:'小心冰面和分岔路！按住 E 抓拉附近對手。', color:0x39d4c5, sky:0xbbeefe, time:80 },
+  { name:'果凍搖擺橋', tag:'JELLY JUNCTION', hint:'移動平台、巨槌、窄橋！被抓住時按 Shift 掙脫。', color:0xa58aff, sky:0xd7ceff, time:90 },
+  { name:'皇冠狂想曲', tag:'CROWN CHAOS', hint:'複合機關全面開啟！拉人、衝撞，小心一起下去。', color:0xffbd4a, sky:0xffdfc3, time:100 },
 ];
+export const TERRAIN_NAMES={plain:'糖霜跑道',ice:'溜冰糖漿 · 提早轉向',conveyor:'逆向輸送帶 · 小心側滑',bridge:'獨木糖橋 · 別被擠下去',split:'雙線甜甜圈 · 中間是洞',moving:'漂移果凍 · 抓準落點'};
+export const GRAB={range:2.05,duration:.85,cooldown:2.5,immunity:1.25};
 export function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t ^= t + Math.imul(t ^ t >>> 7, 61 | t); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 export const clamp = (n,a,b) => Math.max(a,Math.min(b,n));
 export function generateCourse(seed, round) {
   const random = rng(seed + round * 123457), platforms=[], obstacles=[];
-  const count=8+round*2, width=13-round*1.45;
+  const count=9+round*2, width=12.8-round*1.5;
+  const shuffled=values=>{const bag=[...values];for(let i=bag.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}return bag;};
+  const terrains=shuffled(round===0?['ice','conveyor','bridge','split','plain']:['ice','conveyor','bridge','split','moving','plain']);
+  const hazards=shuffled(round===0?['bumpers','sweeper','piston']:['bumpers','sweeper','piston','slider','hammer','fan']);
   let start=-7, center=0;
   for(let i=0;i<count;i++) {
-    const length=i===0?23:15+random()*4;
-    if(i>0) center=clamp(center+(random()-.5)*3,-3,3);
-    platforms.push({start,end:start+length,x:center,width});
+    const length=i===0?23:17+random()*4;
+    if(i>0) center=clamp(center+(random()-.5)*3.4,-4,4);
+    const kind=i===0||i===count-1?'plain':terrains[(i-1)%terrains.length];
+    const segmentWidth=kind==='bridge'?6.8-round*.9:width;
+    const platform={start,end:start+length,x:center,width:segmentWidth,kind,phase:random()*Math.PI*2,speed:.65+round*.2,amplitude:kind==='moving'?.85+round*.2:0,beltX:kind==='conveyor'?(random()<.5?-1:1)*(1.1+round*.5):0,beltP:kind==='conveyor'?-1.6-round*.3:0};
+    platforms.push(platform);
     if(i>0 && i<count-1) {
-      const kind=(i+round)%3===0?'sweeper':(round>0 && i%2===0?'slider':'bumpers');
-      obstacles.push({kind,p:start+length*.53,x:center,phase:random()*Math.PI*2,speed:(.8+random()*.35)*(1+round*.4),radius:width*.42,offset:(random()-.5)*3});
+      const add=(kind,p,x=center)=>obstacles.push({kind,p,x,phase:random()*Math.PI*2,speed:(.9+random()*.4)*(1+round*.5),radius:segmentWidth*.42,offset:(random()-.5)*2,direction:random()<.5?-1:1});
+      if(kind==='split') {add('piston',start+length*.46,center-segmentWidth*.3);if(round>0)add('piston',start+length*.67,center+segmentWidth*.3);}
+      else if(kind==='bridge'){add(round===0?'sweeper':'hammer',start+length*.55);}
+      else if(kind!=='moving'){
+        add(hazards[(i-1)%hazards.length],start+length*(round===2?.4:.54));
+        if(round===2)add(hazards[(i+2)%hazards.length],start+length*.73);
+      }
     }
     start+=length+(i===0?0:1.6+round*.4+random()*.45);
   }
   return {seed,round,platforms,obstacles,length:platforms.at(-1).end-4,width};
 }
 export function obstaclePose(ob,time) {
-  return { x:ob.kind==='slider'?ob.x+Math.sin(time*ob.speed+ob.phase)*ob.radius*.8:ob.x+ob.offset, angle:time*ob.speed+ob.phase };
+  const angle=time*ob.speed+ob.phase,wave=Math.sin(angle);
+  return { x:ob.kind==='slider'?ob.x+wave*ob.radius*.8:ob.kind==='hammer'?ob.x+wave*ob.radius*.72:ob.x+ob.offset,angle,y:.9+Math.abs(wave)*2.4,height:.18+Math.max(0,wave)*2.5,wind:ob.direction*(.7+.3*wave) };
 }
-export function platformAt(course,x,p,margin=0) { return course.platforms.find(s=>p>=s.start && p<=s.end && Math.abs(x-s.x)<=s.width/2+margin); }
+export function platformX(platform,time=0) {return platform.x+(platform.amplitude||0)*Math.sin(time*platform.speed+platform.phase);}
+export function platformAt(course,x,p,margin=0,time=0) { return course.platforms.find(s=>p>=s.start && p<=s.end && Math.abs(x-platformX(s,time))<=s.width/2+margin && !(s.kind==='split'&&p>s.start+5&&p<s.end-3&&Math.abs(x-s.x)<1.2-margin)); }
 export function createRacers(name,seed) {
   const random=rng(seed);
   return [name,...BOT_NAMES].map((name,id)=>({id,name,color:COLORS[id],skill:.87+random()*.2,lane:(random()-.5)*5,points:0,results:[],totalTime:0}));
 }
 export function resetRacers(racers) {
-  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0}));
+  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0,grabTarget:null,grabbedBy:null,grabTime:0,grabCooldown:0,grabImmune:.8,grabHeld:false,grabbedTime:0,grabs:0,escapes:0}));
 }
-export function botInput(r,course,time) {
+export function botInput(r,course,time,racers=[]) {
+  const lane=r.lane+Math.sin(r.respawns*2.4)*1.4;
   const segment=course.platforms.find(s=>s.end>r.p+2) || course.platforms.at(-1);
-  let target=segment.x+clamp(r.lane,-segment.width/2+1.4,segment.width/2-1.4);
-  let jump=false;
+  let target=platformX(segment,time+.4)+clamp(lane,-segment.width/2+1.4,segment.width/2-1.4);
+  let jump=false,forward=1;
   const current=course.platforms.find(s=>r.p>=s.start && r.p<=s.end);
-  if(current && current.end-r.p<2.1 && current.end<course.length) {
+  if(current && current.end-r.p<1.6 && current.end<course.length) {
     jump=true;
     const next=course.platforms[course.platforms.indexOf(current)+1];
-    if(next) target=next.x+clamp(r.lane,-next.width/2+1.5,next.width/2-1.5);
+    if(next) target=platformX(next,time+.55)+clamp(lane,-next.width/2+1.5,next.width/2-1.5);
   }
-  for(const ob of course.obstacles) {
+  // Commit to the nearest obstacle before planning a later one in a combo.
+  for(const ob of course.obstacles.filter(ob=>ob.p-r.p>-1.7&&ob.p-r.p<10).slice(0,1)) {
     if(ob.p-r.p > -1.7 && ob.p-r.p<10) {
       if(ob.kind==='sweeper') { if(Math.abs(ob.p-r.p)<4) jump=true; }
-      else if(ob.kind==='slider') {
+      else if(ob.kind==='slider' || ob.kind==='piston') {
         const pose=obstaclePose(ob,time+.3);
         target=segment.x+(pose.x>segment.x?-1:1)*(segment.width/2-1.8);
+      } else if(ob.kind==='hammer') {
+        if(Math.abs(ob.p-r.p)<2.7)jump=true;
+        target=segment.x+clamp(lane,-segment.width/2+1.3,segment.width/2-1.3);
+        const prediction=obstaclePose(ob,time+Math.max(0,ob.p-r.p)/8);
+        if(ob.p-r.p>2.7&&ob.p-r.p<4.7&&Math.abs(prediction.x-target)<1.5&&prediction.y<2.6)forward=0;
+      } else if(ob.kind==='fan') {
+        target=segment.x-ob.direction*(segment.width/2-1.8);
       } else {
         target=segment.x;
       }
     }
   }
-  return {x:clamp((target-r.x)*1.5,-1,1),forward:1,jump,dive:false};
+  if(segment.kind==='split'&&r.p<segment.end-3){
+    target=segment.x+(lane>=0?1:-1)*(segment.width*.3);
+    const piston=course.obstacles.find(ob=>ob.kind==='piston'&&ob.p-r.p>0&&ob.p-r.p<5&&Math.abs(ob.x+ob.offset-target)<1.7);
+    if(piston){if(piston.p-r.p<3.3&&obstaclePose(piston,time+.25).height>.7)forward=0;else if(piston.p-r.p<2.7)jump=true;}
+  }
+  if(segment.kind==='moving')target=platformX(segment,time+.3)+clamp(lane,-1.3,1.3);
+  if(r.grabTarget!==null&&!jump)target=segment.x+(lane>=0?1:-1)*(segment.width/2-1.6);
+  const nearby=racers.some(other=>other.id!==r.id&&!other.finished&&Math.hypot(other.x-r.x,other.p-r.p)<GRAB.range&&Math.abs(other.y-r.y)<1);
+  const grab=r.grabTarget!==null || (!jump&&nearby&&(time+r.id*.71)%(3.6-r.skill*.3)<.65);
+  const dive=r.grabbedBy!==null&&r.grabbedTime>.3&&r.diveCooldown<=0;
+  return {x:clamp((target-r.x)*1.5-r.vx*(segment.kind==='ice'?.65:.08),-1,1),forward,jump,dive,grab};
+}
+
+function releaseGrab(holder,racers) {
+  const victim=racers.find(r=>r.id===holder.grabTarget);
+  if(victim&&victim.grabbedBy===holder.id){victim.grabbedBy=null;victim.grabbedTime=0;victim.grabImmune=GRAB.immunity;}
+  holder.grabTarget=null;holder.grabTime=0;holder.grabCooldown=GRAB.cooldown;
+}
+export function stepGrabs(racers,inputs,dt) {
+  const inputFor=r=>inputs.get(r.id)||{};
+  for(const r of racers){r.grabCooldown=Math.max(0,r.grabCooldown-dt);r.grabImmune=Math.max(0,r.grabImmune-dt);}
+  for(const holder of racers) {
+    if(holder.grabTarget===null)continue;
+    const victim=racers.find(r=>r.id===holder.grabTarget),input=inputFor(holder),escape=victim&&inputFor(victim).dive&&!victim.diveHeld&&victim.diveCooldown<=0&&victim.stun<=0;
+    holder.grabTime+=dt;
+    if(!victim||!input.grab||input.jump||input.dive||escape||holder.finished||victim.finished||holder.stun>0||victim.stun>0||holder.y<-.5||victim.y<-.5||Math.abs(holder.y-victim.y)>1.4||Math.hypot(holder.x-victim.x,holder.p-victim.p)>3||holder.grabTime>=GRAB.duration) {
+      if(escape)victim.escapes++;
+      releaseGrab(holder,racers);continue;
+    }
+    victim.grabbedTime+=dt;
+    const dx=victim.x-holder.x,dp=victim.p-holder.p,d=Math.hypot(dx,dp)||1,nx=dx/d,np=dp/d;
+    const separating=(victim.vx-holder.vx)*nx+(victim.vp-holder.vp)*np;
+    const pull=clamp((d-1.05)*24+separating*4,0,26)*dt;
+    victim.vx-=nx*pull;victim.vp-=np*pull;holder.vx+=nx*pull;holder.vp+=np*pull;
+  }
+  for(const r of racers) {
+    // Holding E searches until a catch succeeds; one hold cannot chain catches.
+    const input=inputFor(r),pressed=input.grab&&!r.grabHeld;if(!input.grab)r.grabHeld=false;
+    if(!pressed||r.grabCooldown>0||r.grabTarget!==null||r.grabbedBy!==null||r.finished||r.stun>0||r.dive>0||r.y<-.1||input.dive||input.jump)continue;
+    const victim=racers.filter(v=>v.id!==r.id&&!v.finished&&v.grabbedBy===null&&v.grabTarget===null&&v.grabImmune<=0&&v.y>=-.1&&Math.abs(v.y-r.y)<1.05&&Math.hypot(v.x-r.x,v.p-r.p)<=GRAB.range).sort((a,b)=>Math.hypot(a.x-r.x,a.p-r.p)-Math.hypot(b.x-r.x,b.p-r.p)||a.id-b.id)[0];
+    if(!victim){r.grabCooldown=.25;continue;}
+    r.grabTarget=victim.id;r.grabTime=0;r.grabHeld=true;victim.grabbedBy=r.id;victim.grabbedTime=0;r.grabs++;
+    const dx=victim.x-r.x,dp=victim.p-r.p,d=Math.hypot(dx,dp)||1;
+    victim.vx-=dx/d*2.2;victim.vp-=dp/d*2.2;r.vx+=dx/d*2.2;r.vp+=dp/d*2.2;
+  }
 }
 function hit(r,dx,dp,strength=7) {
   if(r.stun>0 || r.y>2) return;
@@ -65,10 +133,11 @@ function hit(r,dx,dp,strength=7) {
 export function stepRacer(r,input,course,time,dt) {
   if(r.finished) return;
   r.stun=Math.max(0,r.stun-dt);r.impact=Math.max(0,r.impact-dt);r.dive=Math.max(0,r.dive-dt);r.diveCooldown=Math.max(0,r.diveCooldown-dt);
-  const speed=8.8*(r.id===0?1:r.skill), norm=Math.max(1,Math.hypot(input.x,input.forward));
+  const standing=platformAt(course,r.x,r.p,0,time-dt);
+  const speed=8.8*(r.id===0?1:r.skill)*(r.grabbedBy!==null?.42:r.grabTarget!==null?.68:1), norm=Math.max(1,Math.hypot(input.x,input.forward));
   if(r.stun<=0) {
     // Briefly reduce steering after a body impact so input cannot erase its impulse.
-    const lerp=1-Math.exp(-dt*(r.impact>0?3:r.ground?14:5));
+    const lerp=1-Math.exp(-dt*(r.impact>0?3:r.ground?(standing?.kind==='ice'?2.2:14):5));
     const boost=r.dive>0?1.65:1;
     r.vx+=(input.x/norm*speed*boost-r.vx)*lerp;
     r.vp+=(input.forward/norm*speed*boost-r.vp)*lerp;
@@ -81,11 +150,12 @@ export function stepRacer(r,input,course,time,dt) {
   }
   r.jumpHeld=input.jump;r.diveHeld=input.dive;
   const oldY=r.y;
+  if(r.ground&&standing){r.x+=standing.beltX*dt+platformX(standing,time)-platformX(standing,time-dt);r.p+=standing.beltP*dt;}
   r.vy-=24*dt;r.x+=r.vx*dt;r.p+=r.vp*dt;r.y+=r.vy*dt;
-  const floor=platformAt(course,r.x,r.p);
+  const floor=platformAt(course,r.x,r.p,0,time);
   if(floor && r.y<=0 && oldY>=-.15 && r.vy<=0) {
     r.y=0;r.vy=0;r.ground=true;
-    if(r.p>floor.start+1.4 && r.p<floor.end-1 && floor.start>r.checkpoint.p) r.checkpoint={x:floor.x,p:floor.start+2};
+    if(floor.kind!=='moving'&&r.p>floor.start+1.4 && r.p<floor.end-1 && floor.start>r.checkpoint.p) r.checkpoint={x:floor.x,p:floor.start+2};
   } else r.ground=false;
   if(r.y < -8) {r.x=r.checkpoint.x;r.p=r.checkpoint.p;r.y=2;r.vy=0;r.vx=0;r.vp=0;r.stun=.25;r.impact=0;r.dive=0;r.respawns++;}
   r.maxP=Math.max(r.maxP,r.p);
@@ -98,6 +168,13 @@ export function stepRacer(r,input,course,time,dt) {
       if(Math.abs(along)<ob.radius+.4 && Math.abs(perpendicular)<.72 && r.y<.95 && r.y>-.5) hit(r,-Math.sin(pose.angle)*Math.sign(perpendicular||1),Math.cos(pose.angle)*Math.sign(perpendicular||1),9);
     } else if(ob.kind==='slider') {
       if(Math.abs(r.x-pose.x)<1.6 && Math.abs(r.p-ob.p)<1.05 && r.y<2.3 && r.y>-.5) hit(r,r.x-pose.x,r.p-ob.p);
+    } else if(ob.kind==='piston') {
+      if(Math.abs(r.x-pose.x)<1.35&&Math.abs(r.p-ob.p)<1.1&&r.y<pose.height&&r.y>-.5)hit(r,r.x-pose.x,r.p-ob.p,10+course.round);
+    } else if(ob.kind==='hammer') {
+      const dx=r.x-pose.x,dp=r.p-ob.p;
+      if(Math.hypot(dx,dp,r.y+1-pose.y)<1.5)hit(r,Math.cos(pose.angle)*2,dp||-1,12+course.round*2);
+    } else if(ob.kind==='fan') {
+      if(Math.abs(r.p-ob.p)<3&&Math.abs(r.x-ob.x)<ob.radius+1&&r.y>-.3&&r.y<3)r.vx+=pose.wind*(20+course.round*8)*dt;
     } else {
       for(const side of [-1,1]) {const dx=r.x-(ob.x+side*ob.radius*.65),dp=r.p-ob.p;if(Math.hypot(dx,dp)<1.45 && r.y<1.8 && r.y>-.5) hit(r,dx,dp,9);}
     }
