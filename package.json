@@ -1,0 +1,33 @@
+{
+  "name": "sugar-beat",
+  "version": "1.0.0",
+  "description": "Three.js procedural three-round party racer",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/game.test.js",
+    "test:e2e": "playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/firejeff01/sugar_beat.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/firejeff01/sugar_beat/issues"
+  },
+  "homepage": "https://github.com/firejeff01/sugar_beat#readme",
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "vite": "^8.2.2"
+  },
+  "private": true
+}
