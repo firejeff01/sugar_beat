@@ -32,7 +32,7 @@ export function createRacers(name,seed) {
   return [name,...BOT_NAMES].map((name,id)=>({id,name,color:COLORS[id],skill:.87+random()*.2,lane:(random()-.5)*5,points:0,results:[],totalTime:0}));
 }
 export function resetRacers(racers) {
-  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0}));
+  racers.forEach((r,i)=>Object.assign(r,{x:(i%4-1.5)*2,p:-Math.floor(i/4)*2,y:0,vx:0,vp:0,vy:0,ground:true,checkpoint:{x:0,p:0},finished:false,finishTime:null,place:0,stun:0,impact:0,dive:0,diveCooldown:0,respawns:0,jumpHeld:false,diveHeld:false,maxP:0}));
 }
 export function botInput(r,course,time) {
   const segment=course.platforms.find(s=>s.end>r.p+2) || course.platforms.at(-1);
@@ -64,10 +64,11 @@ function hit(r,dx,dp,strength=7) {
 }
 export function stepRacer(r,input,course,time,dt) {
   if(r.finished) return;
-  r.stun=Math.max(0,r.stun-dt);r.dive=Math.max(0,r.dive-dt);r.diveCooldown=Math.max(0,r.diveCooldown-dt);
+  r.stun=Math.max(0,r.stun-dt);r.impact=Math.max(0,r.impact-dt);r.dive=Math.max(0,r.dive-dt);r.diveCooldown=Math.max(0,r.diveCooldown-dt);
   const speed=8.8*(r.id===0?1:r.skill), norm=Math.max(1,Math.hypot(input.x,input.forward));
   if(r.stun<=0) {
-    const lerp=1-Math.exp(-dt*(r.ground?14:5));
+    // Briefly reduce steering after a body impact so input cannot erase its impulse.
+    const lerp=1-Math.exp(-dt*(r.impact>0?3:r.ground?14:5));
     const boost=r.dive>0?1.65:1;
     r.vx+=(input.x/norm*speed*boost-r.vx)*lerp;
     r.vp+=(input.forward/norm*speed*boost-r.vp)*lerp;
@@ -86,7 +87,7 @@ export function stepRacer(r,input,course,time,dt) {
     r.y=0;r.vy=0;r.ground=true;
     if(r.p>floor.start+1.4 && r.p<floor.end-1 && floor.start>r.checkpoint.p) r.checkpoint={x:floor.x,p:floor.start+2};
   } else r.ground=false;
-  if(r.y < -8) {r.x=r.checkpoint.x;r.p=r.checkpoint.p;r.y=2;r.vy=0;r.vx=0;r.vp=0;r.stun=.25;r.respawns++;}
+  if(r.y < -8) {r.x=r.checkpoint.x;r.p=r.checkpoint.p;r.y=2;r.vy=0;r.vx=0;r.vp=0;r.stun=.25;r.impact=0;r.dive=0;r.respawns++;}
   r.maxP=Math.max(r.maxP,r.p);
   for(const ob of course.obstacles) {
     if(Math.abs(ob.p-r.p)>ob.radius+2) continue;
@@ -102,11 +103,38 @@ export function stepRacer(r,input,course,time,dt) {
     }
   }
 }
-export function separateRacers(racers) {
-  for(let i=0;i<racers.length;i++) for(let j=i+1;j<racers.length;j++) {
-    const a=racers[i],b=racers[j];if(a.finished||b.finished||Math.abs(a.y-b.y)>1.3)continue;
+export function resolveRacerCollisions(racers) {
+  // Upright capsules match the bean bodies: radius .56, center segment .63.
+  // Resolve horizontally to keep platform landing/jumping under the gravity solver.
+  // All racers have equal mass. Multiple passes propagate shoves through a crowd.
+  for(let pass=0;pass<3;pass++) for(let i=0;i<racers.length;i++) for(let j=i+1;j<racers.length;j++) {
+    const a=racers[i],b=racers[j];if(a.finished||b.finished)continue;
+    const verticalGap=Math.max(0,Math.abs(a.y-b.y)-.63);
+    if(verticalGap>=1.12)continue;
+    const contactDistance=Math.sqrt(1.12**2-verticalGap**2);
     const dx=b.x-a.x,dp=b.p-a.p,d=Math.hypot(dx,dp);
-    if(d>0 && d<.85) {const force=(.85-d)*.22;a.x-=dx/d*force;b.x+=dx/d*force;a.p-=dp/d*force;b.p+=dp/d*force;}
+    if(d>=contactDistance)continue;
+    let nx,np;
+    if(d>.00001){nx=dx/d;np=dp/d;}
+    else {
+      // A deterministic normal also separates racers sharing a respawn location.
+      const relativeX=a.vx-b.vx,relativeP=a.vp-b.vp,speed=Math.hypot(relativeX,relativeP);
+      const angle=(Math.min(a.id,b.id)*17+Math.max(a.id,b.id)*31)*2.39996,sign=a.id<b.id?1:-1;
+      nx=speed>.00001?relativeX/speed:Math.cos(angle)*sign;
+      np=speed>.00001?relativeP/speed:Math.sin(angle)*sign;
+    }
+    const correction=Math.max(0,contactDistance-d-.002)*.5;
+    a.x-=nx*correction;a.p-=np*correction;b.x+=nx*correction;b.p+=np*correction;
+    const approach=(a.vx-b.vx)*nx+(a.vp-b.vp)*np;
+    if(approach<=0)continue; // Never pull racers back together as they separate.
+    const impulse=approach*(1+.18)*.5;
+    a.vx-=nx*impulse;a.vp-=np*impulse;b.vx+=nx*impulse;b.vp+=np*impulse;
+    if(approach>3) {
+      const recovery=Math.min(.28,.12+approach*.009);
+      a.impact=Math.max(a.impact,recovery);b.impact=Math.max(b.impact,recovery);
+      // A dive's extra speed produces extra impulse, then the impact ends the dive.
+      a.dive=0;b.dive=0;
+    }
   }
 }
 export function raceOrder(racers) {return [...racers].sort((a,b)=> a.finished!==b.finished?(a.finished?-1:1):a.finished?a.place-b.place:b.p-a.p||a.id-b.id);}

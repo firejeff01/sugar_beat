@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import './style.css';
-import { THEMES, COLORS, generateCourse, createRacers, resetRacers, botInput, obstaclePose, stepRacer, separateRacers, raceOrder, awardRound, finalOrder, clamp } from './game.js';
+import { THEMES, COLORS, generateCourse, createRacers, resetRacers, botInput, obstaclePose, stepRacer, resolveRacerCollisions, raceOrder, awardRound, finalOrder, clamp } from './game.js';
 
 const $=s=>document.querySelector(s);
 $('#app').innerHTML=`
@@ -127,9 +127,13 @@ function tick(dt) {
   for(const r of racers) {
     const input=r.id===0?{x:Number(keys.has('KeyD'))-Number(keys.has('KeyA')),forward:Number(keys.has('KeyW'))-Number(keys.has('KeyS')),jump:keys.has('Space'),dive:keys.has('ShiftLeft')||keys.has('ShiftRight')}:botInput(r,course,simulationTime);
     const wasGround=r.ground;stepRacer(r,input,course,simulationTime,dt);if(r.id===0&&wasGround&&!r.ground&&input.jump)beep(490,.06);
+  }
+  const previousImpact=racers[0].impact;
+  resolveRacerCollisions(racers);
+  if(previousImpact<=0&&racers[0].impact>0)beep(240,.07);
+  for(const r of racers) {
     if(!r.finished&&r.p>=course.length&&r.y>=-.1&&platformAtFinish(r)) {r.finished=true;r.finishTime=elapsed;r.place=++finishCount;if(r.id===0){toast(`第 ${r.place} 名完賽！等待其他選手抵達…`);beep(880,.2);}}
   }
-  separateRacers(racers);
   if(racers[0].respawns>lastRespawns){lastRespawns=racers[0].respawns;toast('噗通！已回到最近的檢查點');beep(180,.16);}
   if(finishCount===racers.length||elapsed>=THEMES[round].time)showResults();
 }
@@ -145,7 +149,7 @@ function animate(now) {
       const r=racers[i],data=g.userData,run=state==='lobby'?0:Math.hypot(r.vx,r.vp),bob=r.ground?Math.sin(now*.014+i)*Math.min(run*.007,.065):0;
       g.position.set(r.x,r.y+bob,-r.p);
       if(state==='lobby'){g.rotation.y=Math.PI-.35;data.body.rotation.z=Math.sin(now*.0018+i)*.07;g.position.y+=Math.sin(now*.002+i)*.1;}
-      else {if(run>.2&&!r.finished)g.rotation.y=THREE.MathUtils.lerp(g.rotation.y,Math.atan2(-r.vx,r.vp),.18);data.body.rotation.x=r.dive>0?-1.2:0;data.body.rotation.z=r.stun>0?Math.sin(now*.04)*.3:0;}
+      else {if(run>.2&&!r.finished)g.rotation.y=THREE.MathUtils.lerp(g.rotation.y,Math.atan2(-r.vx,r.vp),.18);data.body.rotation.x=r.dive>0?-1.2:0;data.body.rotation.z=r.stun>0?Math.sin(now*.04)*.3:r.impact>0?Math.sin(now*.045)*.2:0;}
       data.feet.forEach((f,j)=>f.position.z=-.1+Math.sin(now*.018+j*Math.PI)*Math.min(run*.035,.26));data.left.rotation.x=Math.sin(now*.017)*run*.055;data.right.rotation.x=-data.left.rotation.x;
       if(data.marker)data.marker.position.y=2.65+Math.sin(now*.004)*.13;
     });
